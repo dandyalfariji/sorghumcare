@@ -35,23 +35,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
+    // Penting: role harus selesai dibaca SEBELUM `loading` dimatikan.
+    // Kalau tidak, AdminGuard ter-render lebih dulu dengan isAdmin=false dan
+    // langsung melempar admin ke halaman utama (bug masuk /#/admin).
+    // Ada batas 5 detik supaya aplikasi tidak menggantung kalau jaringan lambat.
+    const loadProfileThen = async (_s: Session | null) => {
+      try {
+        const profile: any = await Promise.race([
+          fetchProfile(),
+          new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+        ]);
+        setRole(profile?.role ?? null);
+      } catch {
+        setRole(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
-      fetchProfile().then((profile: any) => {
-        setRole(profile?.role ?? null);
-      });
-      setLoading(false);
+      void loadProfileThen(s);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, s) => {
         setSession(s);
         setUser(s?.user ?? null);
-        fetchProfile().then((profile: any) => {
-          setRole(profile?.role ?? null);
-        });
-        setLoading(false);
+        void loadProfileThen(s);
       }
     );
 
