@@ -4,7 +4,10 @@ dist/
 coverage/
 .DS_Store
 *.log
-.env*
+.env
+.env.local
+.env.*.local
+!.env.example
 
 # Supabase CLI local state
 supabase/.temp/

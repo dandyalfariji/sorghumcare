@@ -58,7 +58,14 @@ async function parseSSE(reader: ReadableStreamDefaultReader<Uint8Array>): Promis
   // token is emitted). Measured over the 2026-09 sweeps: p75 114s, max 175s, and one
   // production request streamed for 230s end-to-end, so the old 170s cap left ~3s of
   // headroom on the slowest runs. 200s keeps headroom for the backend's slow tail.
-  const NO_CONTENT_TIMEOUT_MS = 200_000;
+  // Re-measured 2026-11-07 on the live backend: RAG retrieval returns in ~0.3s but the LLM
+  // provider emitted no content at all across four runs (150s, 180s, 240s, 392s). The 392s
+  // run is the informative one — the backend itself gave up there and streamed its own
+  // "Koneksi ke server AI mengalami waktu tunggu habis (timeout)" text. So the binding
+  // ceiling is the backend's (~392s), not ours: aborting at 200s only replaces the user's
+  // timeout with a bare error while the provider is still working. 250s bounds the wait
+  // while giving the provider the room the earlier 230s production run already needed.
+  const NO_CONTENT_TIMEOUT_MS = 250_000;
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -81,10 +88,17 @@ async function parseSSE(reader: ReadableStreamDefaultReader<Uint8Array>): Promis
     // Backstop only: abort if the backend stays silent past NO_CONTENT_TIMEOUT_MS.
     if (!full && Date.now() - lastContentTime > NO_CONTENT_TIMEOUT_MS) {
       reader.cancel();
-      throw new Error(`BIMA AI timeout: tidak ada konten resep setelah ${NO_CONTENT_TIMEOUT_MS / 1000} detik.`);
+      // Actionable message: the cause is LLM speed on the backend (not the user's
+      // connection), and there is a no-AI way out. Matched by isAiUnavailableError
+      // through the word "timeout".
+      throw new Error(
+        `Timeout AI: server AI belum mengirim isi resep setelah ${NO_CONTENT_TIMEOUT_MS / 1000} detik. ` +
+        'Ini biasanya karena model AI di sisi server sedang lambat atau antrean padat — bukan koneksi Anda. ' +
+        'Silakan coba lagi sebentar lagi, atau pilih salah satu alternatif resep di bawah ini (dibuat langsung tanpa AI).'
+      );
     }
   }
-  
+
   // 🔧 If the backend RAG guard flagged the recipe as unfit/dangerous, DO NOT render the food!
   // Force it into an 'unpayload' refusal so the frontend displays the warning instead.
   if (validationData && validationData.verdict === 'tidak_valid') {
@@ -152,10 +166,12 @@ export async function bimaChat(
       const payload: Record<string, unknown> = { message };
   if (history && history.length) payload.history = history;
 
-  // 🔧 Client-side timeout: 210s — must exceed the no-content guard in parseSSE (200s)
-  // AND the frontend-host proxy window. A production wizard request was measured
-  // streaming for 230s end-to-end, so 180s was cutting healthy calls.
-  const CLIENT_TIMEOUT_MS = 210_000;
+  // 🔧 Client-side timeout: 260s — must exceed the no-content guard in parseSSE (250s)
+  // AND the frontend-host proxy window. Raised together with that guard (see the note
+  // there): the live backend gave up on its own at 392s, so the previous 180s/200s pair
+  // was aborting requests the provider was still working on.
+  const CLIENT_TIMEOUT_MS = 260_000;
+
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), CLIENT_TIMEOUT_MS);
 

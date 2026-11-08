@@ -1345,7 +1345,21 @@ export default function App() {
                         </button>
                       </div>
 
-                      <div className="flex items-center gap-2" />
+                      {/* Tombol kembali: workspace chat hanya punya hamburger di kiri,
+                          sehingga sebelumnya tidak ada jalan keluar yang terlihat dari
+                          halaman generate. Selalu tersedia, terlepas dari isi percakapan. */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          id="btn-back-to-home"
+                          onClick={() => handleSelectTab('home')}
+                          className="flex items-center gap-1.5 h-10 pl-2.5 pr-3.5 rounded-full text-[#1A1C1B] hover:bg-[#e2e3e1] transition-colors cursor-pointer active:scale-[0.97]"
+                          aria-label="Kembali ke menu utama"
+                          title="Kembali ke menu utama"
+                        >
+                          <ArrowLeft className="w-4 h-4" />
+                          <span className="text-sm font-semibold whitespace-nowrap">Menu Utama</span>
+                        </button>
+                      </div>
                     </header>
 
                     <main className="flex-1 overflow-y-auto px-4 md:px-8 pb-36 pt-6 md:pt-10 flex flex-col items-center">
