@@ -143,10 +143,14 @@ export function parseRoute(path: string): ParsedRoute {
     };
   }
 
-  // 9. Admin (/admin)
+  // 9. Admin (/admin, /admin/:section)
   if (first === 'admin') {
     return {
       routeType: 'admin',
+      // Bagian admin (dashboard/komentar/laporan/resep/pengaturan) harus
+      // diteruskan. Sebelumnya tidak diisi, sehingga semua menu admin
+      // selalu menampilkan Dashboard walau URL-nya berubah.
+      slug: second || undefined,
       tab: 'profile',
     };
   }
