@@ -8,11 +8,18 @@ interface AuthContextValue {
   loading: boolean;
   isGoogleUser: boolean;
   displayName: string;
+  /** Nama lengkap yang disimpan pengguna di halaman Profil (profiles.full_name). */
+  profileName: string | null;
+  /** Status / bio singkat (profiles.bio). */
+  profileBio: string | null;
   avatarUrl: string | null;
   role: string | null;
   isAdmin: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  /** Muat ulang profil dari DB — dipanggil setelah menyimpan edit profil,
+   *  supaya semua halaman (Home, Profile, Sidebar) ikut berubah tanpa reload. */
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -21,11 +28,14 @@ const AuthContext = createContext<AuthContextValue>({
   loading: true,
   isGoogleUser: false,
   displayName: 'Guest',
+  profileName: null,
+  profileBio: null,
   avatarUrl: null,
   role: null,
   isAdmin: false,
   signInWithGoogle: async () => {},
   signOut: async () => {},
+  refreshProfile: async () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -33,6 +43,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
+  const [profileName, setProfileName] = useState<string | null>(null);
+  const [profileBio, setProfileBio] = useState<string | null>(null);
+
+  /** Ambil profil (role + nama + bio) dari DB. Dipakai saat login DAN saat
+   *  pengguna menyimpan edit profil — dulu tidak ada `refreshProfile`,
+   *  sehingga perubahan hanya hidup di state lokal dan hilang saat reload. */
+  const refreshProfile = useCallback(async () => {
+    try {
+      const profile: any = await Promise.race([
+        fetchProfile(),
+        new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+      ]);
+      setRole(profile?.role ?? null);
+      setProfileName(profile?.full_name ?? null);
+      setProfileBio(profile?.bio ?? null);
+    } catch {
+      setRole(null);
+    }
+  }, []);
 
   useEffect(() => {
     // Penting: role harus selesai dibaca SEBELUM `loading` dimatikan.
@@ -41,13 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Ada batas 5 detik supaya aplikasi tidak menggantung kalau jaringan lambat.
     const loadProfileThen = async (_s: Session | null) => {
       try {
-        const profile: any = await Promise.race([
-          fetchProfile(),
-          new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
-        ]);
-        setRole(profile?.role ?? null);
-      } catch {
-        setRole(null);
+        await refreshProfile();
       } finally {
         setLoading(false);
       }
@@ -95,10 +118,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAdmin = role === 'admin';
 
-  // Extract display info from Google user metadata
-  const displayName = isGoogleUser
-    ? (user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'User')
-    : 'Guest';
+  // Nama dari akun Google (kalau login lewat Google).
+  const googleName = isGoogleUser
+    ? (user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || '')
+    : '';
+
+  // Nama tampilan = nama yang DIISI pengguna di halaman Profil, baru fallback
+  // ke nama Google, lalu 'Guest'. Dulu nilainya selalu 'Guest' untuk anonim
+  // dan nama Google untuk akun Google — sehingga hasil edit profil tidak pernah
+  // muncul di Home/Profil/Sidebar.
+  const displayName = profileName?.trim() || googleName || 'Guest';
 
   const avatarUrl = isGoogleUser
     ? (user.user_metadata?.avatar_url || user.user_metadata?.picture || null)
@@ -106,7 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, session, loading, isGoogleUser, displayName, avatarUrl, role, isAdmin, signInWithGoogle, signOut }}
+      value={{ user, session, loading, isGoogleUser, displayName, profileName, profileBio, avatarUrl, role, isAdmin, signInWithGoogle, signOut, refreshProfile }}
     >
       {children}
     </AuthContext.Provider>

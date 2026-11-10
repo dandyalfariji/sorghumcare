@@ -26,8 +26,9 @@ interface ProfilePageProps {
   onListChange?: (list: 'saved' | 'posted' | null) => void;
   savedRecipes?: SavedRecipe[]; // from Supabase (App data layer)
   userName?: string;
-  userRole?: string;
-  onSaveProfile?: (name: string, role: string) => void;
+  /** Status / bio singkat dari profiles.bio */
+  userBio?: string | null;
+  onSaveProfile?: (name: string, bio: string) => void;
   onLogout?: () => void;
   onRemoveSaved?: (recipe: Recipe) => void;
   // Google Auth
@@ -49,7 +50,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   onListChange,
   savedRecipes = [],
   userName: userNameProp = 'Guest',
-  userRole: userRoleProp = '',
+  userBio: userBioProp = '',
   onSaveProfile,
   onLogout,
   onRemoveSaved,
@@ -64,12 +65,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
   // State for interactive features
   const [userName, setUserName] = useState(userNameProp);
-  const [userRole, setUserRole] = useState(userRoleProp);
+  const [userBio, setUserBio] = useState(userBioProp || '');
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [editNameInput, setEditNameInput] = useState(userName);
-  const [editRoleInput, setEditRoleInput] = useState(userRole);
+  const [editBioInput, setEditBioInput] = useState(userBio);
   
-  const [appLanguage, setAppLanguage] = useState<'English' | 'Bahasa Indonesia'>('English');
+  const [appLanguage, setAppLanguage] = useState<'English' | 'Bahasa Indonesia'>(() => {
+    try {
+      const saved = localStorage.getItem('bima_app_language');
+      return saved === 'Bahasa Indonesia' ? 'Bahasa Indonesia' : 'English';
+    } catch {
+      return 'English';
+    }
+  });
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showToast, setShowToast] = useState<string | null>(null);
@@ -127,21 +135,44 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
   useEffect(() => {
     setUserName(userNameProp);
-    setUserRole(userRoleProp);
+    setUserBio(userBioProp || '');
     setEditNameInput(userNameProp);
-    setEditRoleInput(userRoleProp);
-  }, [userNameProp, userRoleProp]);
+    setEditBioInput(userBioProp || '');
+  }, [userNameProp, userBioProp]);
 
   const triggerToast = (msg: string) => {
     setShowToast(msg);
     setTimeout(() => setShowToast(null), 3000);
   };
 
+  /**
+   * Terapkan pilihan bahasa aplikasi.
+   *
+   * Sebelumnya tombol bahasa hanya mengubah state lokal + memunculkan toast,
+   * tanpa efek apa pun dan tanpa tersimpan — jadi pilihannya hilang saat reload
+   * (dan judul di kartu profil ikut kembali ke 'English'). Sekarang pilihan
+   * disimpan ke localStorage dan atribut `<html lang>` diperbarui supaya
+   * pemilihan bahasa benar-benar berlaku untuk dokumen.
+   */
+  const applyAppLanguage = (lang: 'English' | 'Bahasa Indonesia') => {
+    setAppLanguage(lang);
+    const code = lang === 'Bahasa Indonesia' ? 'id' : 'en';
+    try {
+      localStorage.setItem('bima_app_language', lang);
+    } catch {
+      /* abaikan (mode privat) */
+    }
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('lang', code);
+    }
+    triggerToast(lang === 'Bahasa Indonesia' ? 'Bahasa diubah ke Bahasa Indonesia' : 'Language switched to English');
+  };
+
   const handleSavePersonalInfo = () => {
     setUserName(editNameInput);
-    setUserRole(editRoleInput);
+    setUserBio(editBioInput);
     setIsEditingInfo(false);
-    if (onSaveProfile) onSaveProfile(editNameInput, editRoleInput);
+    if (onSaveProfile) onSaveProfile(editNameInput, editBioInput);
     triggerToast('Profil berhasil diperbarui!');
   };
 
@@ -291,6 +322,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
           <span className="text-xl font-bold text-[#163422] tracking-tight">SorghumCare</span>
         </div>
+        <button
+          onClick={onOpenSearch}
+          className="w-10 h-10 flex items-center justify-center rounded-full text-[#163422] hover:bg-[#e2e3e1] transition-colors active:scale-95 duration-150 cursor-pointer"
+          title="Cari Resep"
+          aria-label="Cari Resep"
+        >
+          <Search className="w-5 h-5" />
+        </button>
       </header>
 
       <main className="px-5 md:px-10 max-w-4xl mx-auto space-y-6">
@@ -312,7 +351,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <button
               onClick={() => {
                 setEditNameInput(userName);
-                setEditRoleInput(userRole);
+                setEditBioInput(userBio);
                 setIsEditingInfo(true);
               }}
               className="absolute bottom-3 right-0 bg-[#163422] text-white p-1.5 rounded-full shadow-md hover:bg-[#2d4b37] transition-all"
@@ -323,10 +362,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <h1 className="text-2xl md:text-3xl font-bold text-[#163422] tracking-tight">
-            {isGoogleUser ? (googleDisplayName || userName) : userName}
+            {userName || googleDisplayName || 'Guest'}
           </h1>
           <p className="text-sm text-[#424843] mt-1 max-w-xs mx-auto">
-            {isGoogleUser ? 'Google Account' : userRole}
+            {userBio || (isGoogleUser ? 'Google Account' : 'Guest Mode')}
           </p>
           
           <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
@@ -338,7 +377,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <button
                   onClick={() => {
                     setEditNameInput(userName);
-                    setEditRoleInput(userRole);
+                    setEditBioInput(userBio);
                     setIsEditingInfo(true);
                   }}
                   className="bg-[#163422] text-white px-3 py-1 rounded-full text-xs font-bold hover:bg-[#2d4b37] flex items-center gap-1 transition-all shadow-xs cursor-pointer"
@@ -349,6 +388,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </>
             ) : (
               <>
+                {/* Edit profil juga tersedia untuk pengguna tamu (anonim),
+                    supaya nama/bio bisa diisi tanpa login Google. */}
+                <button
+                  onClick={() => {
+                    setEditNameInput(userName);
+                    setEditBioInput(userBio);
+                    setIsEditingInfo(true);
+                  }}
+                  className="bg-[#163422] text-white px-3 py-1 rounded-full text-xs font-bold hover:bg-[#2d4b37] flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+                >
+                  <Edit3 className="w-3 h-3" />
+                  <span>Edit Profil</span>
+                </button>
                 {/* Sign in with Google button */}
                 <button
                   onClick={async () => {
@@ -524,8 +576,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <label className="block text-xs font-bold text-[#424843] mb-1">Status / Bio Singkat</label>
                 <input
                   type="text"
-                  value={editRoleInput}
-                  onChange={(e) => setEditRoleInput(e.target.value)}
+                  value={editBioInput}
+                  onChange={(e) => setEditBioInput(e.target.value)}
                   className="w-full px-3 py-2 border border-[#c2c8c0] rounded-xl text-sm focus:outline-none focus:border-[#163422]"
                 />
               </div>
@@ -568,9 +620,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <button
                   key={lang}
                   onClick={() => {
-                    setAppLanguage(lang);
+                    applyAppLanguage(lang);
                     setShowLanguageModal(false);
-                    triggerToast(`Bahasa diubah ke ${lang}`);
                   }}
                   className={`w-full flex items-center justify-between p-3 rounded-xl border text-xs font-bold transition-all ${
                     appLanguage === lang

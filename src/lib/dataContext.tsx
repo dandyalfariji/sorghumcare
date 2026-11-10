@@ -153,10 +153,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (stored) {
         setRecipes((prev) => {
           // Only public recipes belong in the Explore catalog list.
+          // Saring dengan id DAN slug: satu resep bisa muncul dua kali (uuid dari
+          // DB vs source_id/slug di kartu statis) dan duplikat itu membuat React
+          // mengeluh "two children with the same key" saat merender daftar.
+          const withoutDupe = prev.filter((r) => r.id !== stored.id && r.slug !== stored.slug);
           if (!stored.isPublished) {
-            return prev.filter((r) => r.slug !== stored.slug);
+            return withoutDupe;
           }
-          return [stored, ...prev.filter((r) => r.slug !== stored.slug)];
+          return [stored, ...withoutDupe];
         });
       }
       return stored;

@@ -93,11 +93,18 @@ export default function App() {
   // Google Auth state
   const {
     isGoogleUser,
-    displayName: googleDisplayName,
+    displayName,
+    profileName,
+    profileBio,
     avatarUrl: googleAvatarUrl,
     signInWithGoogle,
     signOut: googleSignOut,
+    refreshProfile,
   } = useAuth();
+  // Nama tampilan yang dipakai seluruh halaman (Home, Profile, Sidebar, Detail
+  // Resep). Berasal dari profiles.full_name (hasil "Edit Profil"), fallback ke
+  // nama Google, lalu 'Guest' — bukan lagi selalu 'Guest'.
+  const googleDisplayName = displayName;
 
   // Dynamic user stats (Day Streak)
   const [userStats, setUserStats] = useState({ dayStreak: 0 });
@@ -367,15 +374,22 @@ export default function App() {
 
   // Tab Selection with Slug Update
   const handleSelectTab = (tab: AppTab) => {
-    // Blokir tab Generate jika fitur utama dimatikan oleh admin
-    if (tab === 'generate' && !mainFeatureEnabled) {
-      return;
-    }
-
+    // Jangan biarkan state detail resep menelan navigasi tab. Dulu `handleViewRecipe`
+    // menyetel `selectedRecipeDetail`, dan handler yang menutupnya memakai nilai
+    // state yang sudah basi — akibatnya memilih tab (mis. dari sidebar di tab
+    // Generate) memindahkan URL tapi layarnya tetap menampilkan tab lama.
     setSelectedRecipeDetail(null);
     setCookModeRecipe(null);
     setSelectedVideoTutorial(null);
     setIsSearchOpen(false);
+
+    // Blokir tab Generate jika fitur utama dimatikan oleh admin
+    if (tab === 'generate' && !mainFeatureEnabled) {
+      setCurrentTab('home');
+      navigateToSlug(RouteSlugs.home());
+      return;
+    }
+
     setCurrentTab(tab);
 
     if (tab === 'generate') {
@@ -451,19 +465,47 @@ export default function App() {
     navigateToSlug(RouteSlugs[currentTab] ? RouteSlugs[currentTab]() : '/home');
   };
 
-  // Search Navigation
+  // Search Navigation — modal ditutup SECARA EKSPLISIT sebelum URL berpindah.
+  // Kalau urutannya dibalik (URL dulu, tutup belakangan), handler penutup membaca
+  // `selectedRecipeDetail` yang masih basi dan menimpa URL resep dengan tab lama:
+  // itulah kenapa memilih hasil pencarian selalu berakhir di Beranda.
   const handleOpenSearch = () => {
     setIsSearchOpen(true);
     navigateToSlug(RouteSlugs.search());
   };
 
+  /** URL tab yang sedang aktif (dipakai saat modal ditutup). */
+  const slugForTab = (tab: AppTab) => {
+    if (tab === 'generate') return RouteSlugs.generate();
+    if (tab === 'explore') return RouteSlugs.explore();
+    if (tab === 'belajar') return RouteSlugs.belajar();
+    if (tab === 'profile') return RouteSlugs.profile();
+    return RouteSlugs.home();
+  };
+
   const handleCloseSearch = () => {
     setIsSearchOpen(false);
+    // `selectedRecipeDetail` di sini sudah nilai terbaru karena modal ditutup
+    // sebelum handler pemilih resep mengubah state (lihat handleSelectSearchResult).
     if (selectedRecipeDetail) {
       navigateToSlug(RouteSlugs.recipe(selectedRecipeDetail));
     } else {
-      navigateToSlug(RouteSlugs[currentTab] ? RouteSlugs[currentTab]() : '/home');
+      navigateToSlug(slugForTab(currentTab));
     }
+  };
+
+  /** Pilih resep dari hasil pencarian: tutup modal dulu, baru pindah halaman.
+   *  Urutan ini penting — kalau tidak, `handleViewRecipe` mengubah
+   *  `selectedRecipeDetail` sementara efek route /search masih berjalan. */
+  const handleSelectSearchResult = (recipe: Recipe) => {
+    setIsSearchOpen(false);
+    handleViewRecipe(recipe);
+  };
+
+  /** Enter di kolom pencarian: tutup modal dulu, baru kirim prompt ke AI. */
+  const handleSearchQuery = (query: string) => {
+    setIsSearchOpen(false);
+    handleSendMessage(query);
   };
 
   // Wizard Step Navigation
@@ -1165,7 +1207,8 @@ export default function App() {
               generatorEnabled={mainFeatureEnabled}
               onNavigate={(section, itemId) => navigateToSlug(RouteSlugs.belajar(section, itemId))}
               onStartGenerator={() => handleSetWizardStep(1)}
-            />
+              onOpenSearch={handleOpenSearch}
+              />
           )}
 
           {currentTab === 'explore' && (
@@ -1182,6 +1225,12 @@ export default function App() {
                 handleSetWizardStep(1);
               }}
               recipesOverride={dbRecipes}
+              onOpenSearch={handleOpenSearch}
+              displayName={googleDisplayName}
+              onOpenProfile={() => {
+                setSelectedRecipeDetail(null);
+                handleSelectTab('profile');
+              }}
             />
           )}
 
@@ -1200,9 +1249,19 @@ export default function App() {
               onRemoveSaved={(recipe) => {
                 toggleSave(recipe).then(() => refetchSaved());
               }}
-              onSaveProfile={(name, role) => {
-                // Persist display name to profile (role kept locally)
-                import('./lib/supabase').then((m) => m.updateProfileName(name));
+              // Nama dari profil DB. Tanpa ini, halaman Profil selalu
+              // menampilkan "Guest" walaupun nama sudah tersimpan di DB —
+              // inilah kenapa "edit profil belum sinkron".
+              userName={googleDisplayName}
+              userBio={profileBio}
+              onSaveProfile={(name, bio) => {
+                // Simpan nama + bio ke profiles, lalu muat ulang profil dari DB
+                // supaya nama baru langsung terpakai di Home/Sidebar/Profil dan
+                // tetap ada setelah refresh.
+                import('./lib/supabase').then(async (m) => {
+                  await m.updateProfile(name, bio);
+                  await refreshProfile();
+                });
               }}
               isGoogleUser={isGoogleUser}
               googleDisplayName={googleDisplayName}
@@ -1345,10 +1404,19 @@ export default function App() {
                         </button>
                       </div>
 
-                      {/* Tombol kembali: workspace chat hanya punya hamburger di kiri,
-                          sehingga sebelumnya tidak ada jalan keluar yang terlihat dari
-                          halaman generate. Selalu tersedia, terlepas dari isi percakapan. */}
-                      <div className="flex items-center gap-2">
+                      {/* Tombol search + kembali: workspace chat dulu tidak punya
+                          pencarian sama sekali, padahal pencarian jadi navigasi
+                          utama di tab lain. */}
+                      <div className="flex items-center gap-1">
+                        <button
+                          id="btn-chat-search"
+                          onClick={handleOpenSearch}
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-[#1A1C1B] hover:bg-[#e2e3e1] transition-colors cursor-pointer active:scale-95"
+                          aria-label="Cari Resep"
+                          title="Cari Resep"
+                        >
+                          <span className="material-symbols-outlined text-[22px]">search</span>
+                        </button>
                         <button
                           id="btn-back-to-home"
                           onClick={() => handleSelectTab('home')}
@@ -1602,11 +1670,9 @@ export default function App() {
         <SearchModal
           isOpen={isSearchOpen}
           onClose={handleCloseSearch}
-          onSelectRecipe={handleViewRecipe}
+          onSelectRecipe={handleSelectSearchResult}
           recipes={dbRecipes}
-          onSearchQuery={(query) => {
-            handleSendMessage(query);
-          }}
+          onSearchQuery={handleSearchQuery}
         />
 
         {/* Cook Mode Modal */}

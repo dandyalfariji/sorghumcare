@@ -71,16 +71,20 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   const [liked, setLiked] = useState(false);
   const [ratingAvg, setRatingAvg] = useState<number | null>(null);
   const [reviewsCount, setReviewsCount] = useState(0);
+  // Bintang yang dipilih pengguna ini (1-5) — ditampilkan langsung setelah
+  // ditekan supaya ada umpan balik nyata walau rata-rata belum berubah.
+  const [myRating, setMyRating] = useState<number | null>(null);
   const [commentCount, setCommentCount] = useState(0);
   const commentsRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
     import('../../lib/supabase').then(async (m) => {
-      const [stats, likedIds, eng] = await Promise.all([
+      const [stats, likedIds, eng, mine] = await Promise.all([
         m.fetchRecipeStats([recipe.id]),
         m.fetchLikedRecipeIds(),
         m.fetchRecipeEngagement([recipe.id]),
+        m.fetchMyRecipeRating(recipe.id),
       ]);
       if (cancelled) return;
       const st = stats[recipe.id];
@@ -89,6 +93,7 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
       setReviewsCount(st?.reviewsCount || 0);
       setLiked(likedIds.has(recipe.id));
       setCommentCount(eng.comments[recipe.id] ?? 0);
+      setMyRating(mine);
     });
     return () => { cancelled = true; };
   }, [recipe.id]);
@@ -181,6 +186,9 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
     const m = await import('../../lib/supabase');
     const ok = await m.upsertRecipeReview(recipe.id, stars);
     if (!ok) return;
+    // Tampilkan pilihan pengguna lebih dulu (umpan balik langsung), lalu
+    // sinkronkan rata-rata + jumlah ulasan dari view publik.
+    setMyRating(stars);
     const stats = await m.fetchRecipeStats([recipe.id]);
     const st = stats[recipe.id];
     setRatingAvg(st?.ratingAvg ?? null);
@@ -384,27 +392,35 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
                   {ratingAvg != null ? ratingAvg.toFixed(1) : '–'}
                 </span>
                 <div className="flex items-center">
-                  {[1, 2, 3, 4, 5].map((s) => (
+                  {[1, 2, 3, 4, 5].map((s) => {
+                    // Bintang terisi mengikuti pilihan pengguna ini sendiri;
+                    // kalau belum pernah menilai, pakai rata-rata publik.
+                    const filled = myRating != null ? s <= myRating : ratingAvg != null && s <= Math.round(ratingAvg);
+                    return (
                     <button
                       key={s}
                       onClick={() => handleRate(s)}
                       title={`Beri ${s} bintang`}
                       aria-label={`Beri ${s} bintang`}
+                      aria-pressed={myRating === s}
                       className="cursor-pointer active:scale-90 transition-transform"
                     >
                       <Star
                         className={`w-3.5 h-3.5 ${
-                          ratingAvg != null && s <= Math.round(ratingAvg)
+                          filled
                             ? 'fill-amber-500 text-amber-500'
                             : 'text-[#c2c8c0] hover:text-amber-400'
                         }`}
                       />
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
-                {reviewsCount > 0 && (
+                {reviewsCount > 0 ? (
                   <span className="text-[11px] text-[#727972]">({reviewsCount})</span>
-                )}
+                ) : myRating != null ? (
+                  <span className="text-[11px] text-[#727972]">ulasan Anda</span>
+                ) : null}
               </div>
               {/* Badge jumlah komentar -> scroll ke seksi komentar */}
               <button

@@ -13,6 +13,7 @@ import {
   Bookmark,
   ArrowUpDown,
   Star,
+  User,
 } from 'lucide-react';
 import { Recipe } from '../../types';
 import { GLOBAL_FALLBACK_FOOD_IMAGE } from '../../data/imageAssets';
@@ -41,6 +42,12 @@ interface ExploreRecipesPageProps {
   initialCategory?: string;
   onSelectCategorySlug?: (categoryKey: string) => void;
   recipesOverride?: Recipe[]; // when provided, the main grid uses DB catalog
+  /** Buka modal pencarian global (header Explore dulu tidak punya pencarian). */
+  onOpenSearch?: () => void;
+  /** Nama tampilan pengguna untuk tombol profil di header. */
+  displayName?: string;
+  /** Buka halaman profil. */
+  onOpenProfile?: () => void;
 }
 
 type SortOption = 'popular' | 'time-asc' | 'fiber-desc';
@@ -53,6 +60,9 @@ export const ExploreRecipesPage: React.FC<ExploreRecipesPageProps> = ({
     initialCategory,
     onSelectCategorySlug,
     recipesOverride,
+    onOpenSearch,
+    displayName,
+    onOpenProfile,
   }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>(initialCategory || 'all');
@@ -305,8 +315,41 @@ export const ExploreRecipesPage: React.FC<ExploreRecipesPageProps> = ({
   ]);
 
   return (
-    <div className="bg-[#f9f9f7] text-[#1a1c1b] font-['Manrope',sans-serif] min-h-screen pb-32 pt-5">
-      <div className="px-4 md:px-8 max-w-6xl mx-auto space-y-6">
+    <div className="bg-[#f9f9f7] text-[#1a1c1b] font-['Manrope',sans-serif] min-h-screen pb-32">
+      {/* Header konsisten dengan tab lain (Home/Profil): avatar -> Profil,
+          judul, tombol cari. Sebelumnya tab Explore tidak punya header sama
+          sekali, jadi tidak ada jalan ke Profil maupun Cari dari sini. */}
+      <header className="sticky top-0 z-40 bg-[#f9f9f7]/95 backdrop-blur-md border-b border-[#e2e3e1]/60">
+        <div className="px-4 md:px-8 max-w-6xl mx-auto flex items-center justify-between py-3">
+          <button
+            onClick={onOpenProfile}
+            className="flex items-center gap-2.5 cursor-pointer hover:opacity-90 transition-opacity"
+            title="Buka Profil Pengguna"
+            aria-label="Buka Profil Pengguna"
+          >
+            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-[#163422]/20 shadow-xs bg-[#e2e3e1] flex items-center justify-center">
+              <User className="w-5 h-5 text-[#727972]" />
+            </div>
+            <div className="hidden sm:block text-left">
+              <span className="text-xs font-bold text-[#163422] block leading-none">{displayName || 'Guest'}</span>
+              <span className="text-[10px] text-[#727972]">Health Explorer</span>
+            </div>
+          </button>
+
+          <h1 className="text-xl sm:text-2xl font-bold text-[#163422] tracking-tight">SorghumCare</h1>
+
+          <button
+            onClick={onOpenSearch}
+            className="w-10 h-10 flex items-center justify-center rounded-full text-[#163422] hover:bg-[#e2e3e1] transition-colors active:scale-95 duration-150 cursor-pointer"
+            title="Cari Resep"
+            aria-label="Cari Resep"
+          >
+            <span className="material-symbols-outlined text-[24px]">search</span>
+          </button>
+        </div>
+      </header>
+
+      <div className="px-4 md:px-8 max-w-6xl mx-auto space-y-6 pt-5">
         
         {/* Clean Hero Section at the top */}
         <div 

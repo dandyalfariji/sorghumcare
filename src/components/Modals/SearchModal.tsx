@@ -11,6 +11,53 @@ interface SearchModalProps {
   recipes: Recipe[]; // full catalog from Supabase
 }
 
+/** Kata kunci tambahan (Indonesia/Inggris) per kategori hidangan. Judul resep di
+ *  database sebagian berbahasa Inggris ("Rustic Sorghum Loaf Bread"), sehingga
+ *  pencarian "roti" dulu kosong walau resepnya ada. */
+const CATEGORY_ALIASES: Record<string, string[]> = {
+  makanan_berat: ['berat', 'utama', 'nasi', 'rice', 'main course', 'makan siang', 'makan malam', 'lauk', 'bubur'],
+  camilan_sehat: ['camilan', 'snack', 'snacks', 'kudapan', 'cookies', 'kue', 'biskuit', 'gorengan'],
+  minuman_nutrisi: ['minuman', 'drink', 'jus', 'smoothie', 'cendol', 'dawet', 'susu', 'nutrisi'],
+  dessert_rendah_gi: ['dessert', 'pencuci mulut', 'manis', 'puding', 'bolu', 'cake', 'kue'],
+};
+
+/** Terjemahan istilah bahan/istilah masak supaya satu kata kunci menemukan
+ *  resep yang judulnya memakai bahasa lain. */
+const TERM_ALIASES: Record<string, string[]> = {
+  roti: ['bread', 'loaf', 'roti'],
+  nasi: ['rice', 'nasi', 'beras'],
+  // "beras sorgum" adalah sebutan lain untuk nasi/beras sorgum.
+  beras: ['beras', 'nasi', 'rice'],
+  mie: ['noodle', 'noodles', 'mie'],
+  sup: ['soup', 'chowder', 'sup', 'krim'],
+  bolu: ['cake', 'bolu'],
+  kue: ['cookies', 'cookie', 'cake', 'kue', 'bolu'],
+  bubur: ['porridge', 'bubur', 'tinutuan'],
+  sehat: ['healthy', 'sehat'],
+  manis: ['sweet', 'manis'],
+  gurih: ['savory', 'gurih'],
+  rendah: ['low', 'rendah'],
+  gula: ['sugar', 'gula'],
+  gandum: ['wheat', 'gandum'],
+  sarapan: ['breakfast', 'sarapan'],
+  bekal: ['lunchbox', 'bekal', 'school'],
+  cahaya: ['light'],
+};
+
+/** Perluas kata kunci pencarian dengan padanan bahasa lain (dua arah). */
+function expandQuery(q: string): string[] {
+  const base = q.toLowerCase().trim();
+  if (!base) return [];
+  const terms = new Set<string>([base]);
+  for (const [k, list] of Object.entries(TERM_ALIASES)) {
+    if (base.includes(k) || list.some((x) => base.includes(x))) {
+      terms.add(k);
+      list.forEach((x) => terms.add(x));
+    }
+  }
+  return [...terms];
+}
+
 export const SearchModal: React.FC<SearchModalProps> = ({
   isOpen,
   onClose,
@@ -24,12 +71,26 @@ export const SearchModal: React.FC<SearchModalProps> = ({
 
   const allAvailableRecipes: Recipe[] = recipes;
 
-  const filteredRecipes = allAvailableRecipes.filter(
-    (r) =>
-      r.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.dishCategory.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.ingredients.some((i) => i.name.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const q = searchTerm.toLowerCase().trim();
+  const terms = expandQuery(searchTerm);
+  const dishes = terms.map((t) => t.replace(/\s+/g, '_'));
+
+  /** Cocok kalau: ada kata kunci yang ketemu di judul/subtag/tag/bahan, ATAU
+   *  kategorinya dikenali dari sinonim (mis. "roti" -> tak ada hasil judul,
+   *  tapi "camilan/kue" masuk kategori yang cocok). */
+  const matches = (r: Recipe) => {
+    const haystack = [r.title, r.subtitle, r.dishCategory, r.targetAge, ...(r.tags || []), ...r.ingredients.map((i) => i.name)]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    const directHit = terms.some((t) => t.length > 1 && haystack.includes(t));
+    if (directHit) return true;
+    const aliases = CATEGORY_ALIASES[dishes.find((d) => CATEGORY_ALIASES[d]) || ''];
+    if (aliases) return aliases.some((a) => haystack.includes(a) || q.includes(a));
+    return false;
+  };
+
+  const filteredRecipes = allAvailableRecipes.filter(matches);
 
   const quickKeywords = [
     'Nasi Goreng',
@@ -56,8 +117,11 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             className="flex-1 text-sm sm:text-base outline-none text-[#1A1C1B] placeholder-[#727972]"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && searchTerm.trim()) {
+                // Hanya panggil aksinya. `onSelectRecipe`/`onSearchQuery` sudah
+                // menutup modal + memindahkan URL; memanggil onClose() SETELAHNYA
+                // membuat URL ditimpa kembali ke tab lama (bug: cari lalu Enter
+                // selalu berakhir di Beranda).
                 onSearchQuery(searchTerm.trim());
-                onClose();
               }
             }}
           />
@@ -100,10 +164,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
               filteredRecipes.map((rec) => (
                 <div
                   key={rec.id}
-                  onClick={() => {
-                    onSelectRecipe(rec);
-                    onClose();
-                  }}
+                  onClick={() => onSelectRecipe(rec)}
                   className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-[#f9f9f7] border border-[#e2e3e1] cursor-pointer transition-all"
                 >
                   <div className="w-12 h-12 rounded-lg bg-[#f4f4f2] overflow-hidden flex-shrink-0">

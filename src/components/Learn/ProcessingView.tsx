@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, Clock, Lightbulb, TriangleAlert } from 'lucide-react';
 import { SORGHUM_FORMS } from '../../data/learnData';
@@ -11,6 +11,32 @@ interface ProcessingViewProps {
 
 export const ProcessingView: React.FC<ProcessingViewProps> = ({ formId, onSelectForm, onNext }) => {
   const form = SORGHUM_FORMS.find((f) => f.id === formId) || SORGHUM_FORMS[0];
+  const panelRef = useRef<HTMLElement>(null);
+  const firstRender = useRef(true);
+
+  /**
+   * Gulirkan pandangan ke panel detail setiap kali bentuk olahan berganti.
+   *
+   * Kenapa perlu: saat halaman dibuka tanpa id (`/belajar/pengolahan`) panelnya
+   * sudah menampilkan "Beras Sorgum", jadi menekan chip "Beras Sorgum" tidak
+   * mengubah apa pun di layar dan terasa seperti tombol mati. Dengan menggeser
+   * fokus ke panel, setiap pilihan memberi umpan balik yang terlihat.
+   */
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [form.id]);
+
+  const handleSelect = (id: string) => {
+    onSelectForm(id);
+    // Sudah di bentuk yang sama -> URL tidak berubah -> tetap beri umpan balik.
+    if (id === form.id) {
+      panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -25,7 +51,7 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ formId, onSelect
           return (
             <button
               key={f.id}
-              onClick={() => onSelectForm(f.id)}
+              onClick={() => handleSelect(f.id)}
               aria-pressed={active}
               className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold border transition-colors cursor-pointer ${
                 active
@@ -41,7 +67,7 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({ formId, onSelect
       </div>
 
       <div className="grid md:grid-cols-12 gap-5 items-start">
-        <section className="md:col-span-8 bg-white rounded-2xl border border-[#c2c8c0]/60 p-5 shadow-earthy-glow">
+        <section ref={panelRef} className="md:col-span-8 bg-white rounded-2xl border border-[#c2c8c0]/60 p-5 shadow-earthy-glow scroll-mt-32">
           <h3 className="text-lg font-bold text-[#163422]">{form.name}</h3>
           <p className="text-sm text-[#424843] mt-0.5">{form.tagline}</p>
 

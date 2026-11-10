@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Search, Sparkles } from 'lucide-react';
 import { Recipe } from '../../types';
 import { EXPLORE_RECIPES_DATABASE } from '../../data/exploreRecipesData';
 import { SORGHUM_FORMS } from '../../data/learnData';
@@ -20,6 +20,8 @@ interface LearnPageProps {
   generatorEnabled: boolean;
   onNavigate: (section?: LearnSection, itemId?: string) => void;
   onStartGenerator: () => void;
+  /** Buka pencarian global — supaya header Belajar konsisten dengan tab lain. */
+  onOpenSearch?: () => void;
 }
 
 const JOURNEY: { id: LearnSection; label: string; description: string; icon: string }[] = [
@@ -29,6 +31,15 @@ const JOURNEY: { id: LearnSection; label: string; description: string; icon: str
   { id: 'menu', label: 'Detail Menu', description: 'Ikuti bahan dan langkah sampai menu tersaji.', icon: 'restaurant' },
 ];
 
+/** Label tahapan untuk tombol kembali di sub-halaman (△ bukan 'menu' kalau
+ *  detail menu belum dipilih, karena tahap itu melompat ke Katalog). */
+const STEP_LABEL: Record<LearnSection, string> = {
+  pengolahan: 'Pengolahan',
+  persiapan: 'Persiapan',
+  katalog: 'Katalog',
+  menu: 'Detail Menu',
+};
+
 export const LearnPage: React.FC<LearnPageProps> = ({
   section,
   itemId,
@@ -36,6 +47,7 @@ export const LearnPage: React.FC<LearnPageProps> = ({
   generatorEnabled,
   onNavigate,
   onStartGenerator,
+  onOpenSearch,
 }) => {
   const generated = useMemo(
     () => generatedRecipes.filter((r) => !r.aiRefusalText && (r.steps?.length ?? 0) > 0),
@@ -69,16 +81,59 @@ export const LearnPage: React.FC<LearnPageProps> = ({
 
   const activeIndex = JOURNEY.findIndex((j) => j.id === active);
 
+  /**
+   * Tujuan tombol kembali untuk tiap sub-halaman.
+   *
+   * Halaman ini dulu TIDAK punya tombol kembali sama sekali: setelah menekan
+   * "Mulai Belajar" (atau salah satu kartu Alur belajar / Bentuk olahan sorgum)
+   * pengguna hanya bisa keluar lewat navbar bawah — dan navbar itu sendiri
+   * hilang begitu masuk tab Generate. Kini setiap sub-halaman punya jalan pulang
+   * yang terlihat: naik satu tahap, atau kembali ke halaman utama Belajar.
+   */
+  const backTarget: { label: string; go: () => void } | null = !active
+    ? null
+    : active === 'pengolahan'
+      ? { label: 'Belajar Sorgum', go: () => onNavigate() }
+      : active === 'persiapan'
+        ? { label: STEP_LABEL.pengolahan, go: () => onNavigate('pengolahan') }
+        : active === 'katalog'
+          ? { label: STEP_LABEL.persiapan, go: () => onNavigate('persiapan') }
+          : { label: STEP_LABEL.katalog, go: () => onNavigate('katalog') };
+
   return (
     <div className="min-h-screen bg-[#F9F9F7] text-[#1A1C1B] font-['Manrope',sans-serif] pb-28">
       <header className="sticky top-0 z-30 bg-[#F9F9F7]/95 backdrop-blur-sm border-b border-[#c2c8c0]/40">
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-3 pb-2">
-          <button
-            onClick={() => onNavigate()}
-            className="text-lg sm:text-xl font-bold text-[#163422] tracking-tight cursor-pointer"
-          >
-            Belajar Sorgum
-          </button>
+          <div className="flex items-center gap-3">
+            {backTarget && (
+              <button
+                onClick={backTarget.go}
+                className="inline-flex items-center gap-1.5 h-9 pl-2 pr-3 rounded-xl bg-white border border-[#c2c8c0]/70 text-[#163422] text-xs font-bold hover:border-[#163422]/50 hover:bg-[#f4f5f2] transition-colors cursor-pointer shrink-0"
+                aria-label={`Kembali ke ${backTarget.label}`}
+                title={`Kembali ke ${backTarget.label}`}
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span className="hidden sm:inline">{backTarget.label}</span>
+                <span className="sm:hidden">Kembali</span>
+              </button>
+            )}
+            <button
+              onClick={() => onNavigate()}
+              className="text-lg sm:text-xl font-bold text-[#163422] tracking-tight cursor-pointer"
+            >
+              Belajar Sorgum
+            </button>
+            {onOpenSearch && (
+              <button
+                onClick={onOpenSearch}
+                className="ml-auto w-10 h-10 rounded-full flex items-center justify-center text-[#163422] hover:bg-[#e2e3e1] transition-colors cursor-pointer shrink-0"
+                title="Cari Resep"
+                aria-label="Cari Resep"
+              >
+                <Search className="w-5 h-5" />
+              </button>
+            )}
+          </div>
 
           {active && (
             <nav aria-label="Tahapan belajar" className="mt-2">

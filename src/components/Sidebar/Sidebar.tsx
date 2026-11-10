@@ -243,10 +243,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <div className="min-w-0 flex-1">
               <span className="font-semibold text-xs text-[#163422] block truncate">
-                {isGoogleUser ? (googleDisplayName || 'User') : 'Guest'}
+                {googleDisplayName || 'Guest'}
               </span>
               <span className="text-[10px] text-[#727972] block truncate">
-                {isGoogleUser ? 'Google Account' : ''}
+                {isGoogleUser ? 'Google Account' : 'Guest Mode'}
               </span>
             </div>
             <Settings className="w-4 h-4 text-[#727972] flex-shrink-0" />

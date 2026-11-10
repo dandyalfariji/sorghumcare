@@ -54,6 +54,59 @@ export async function getUserIdAsync(): Promise<string | null> {
 }
 
 /* ================================================================== *
+ *  ID RESOLUTION — slug / source_id -> uuid baris `recipes`
+ * ================================================================== */
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True bila string berbentuk uuid Postgres. */
+export function isUuid(value: string | null | undefined): boolean {
+  return !!value && UUID_RE.test(value);
+}
+
+/**
+ * Petakan ID resep apa pun (uuid DB, slug, atau kode seed seperti
+ * `nasi-goreng-sorgum-sd`) menjadi uuid baris `recipes`.
+ *
+ * WAJIB dipakai sebelum menyentuh tabel yang punya foreign key ke
+ * `recipes(id)` — `recipe_likes`, `recipe_reviews`, `saved_recipes`,
+ * `recipe_ingredients`, dst. Kalau tidak, PostgREST menolak dengan
+ * `22P02 invalid input syntax for type uuid`, dan fitur itu diam-diam
+ * gagal (inilah penyebab tombol rating tidak berfungsi sampai 10 Nov 2026:
+ * kartu mengirim `source_id`, bukan uuid).
+ */
+export async function resolveRecipeIds(ids: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const uniq = [...new Set(ids.filter(Boolean))];
+  const unknown: string[] = [];
+  for (const id of uniq) {
+    if (isUuid(id)) map.set(id, id);
+    else unknown.push(id);
+  }
+  if (unknown.length === 0) return map;
+
+  const [bySlug, bySource] = await Promise.all([
+    supabase.from('recipes').select('id, slug').in('slug', unknown),
+    supabase.from('recipes').select('id, source_id').in('source_id', unknown),
+  ]);
+  for (const row of (bySlug.data as { id: string; slug: string }[]) || []) {
+    map.set(row.slug, row.id);
+  }
+  for (const row of (bySource.data as { id: string; source_id: string | null }[]) || []) {
+    if (row.source_id) map.set(row.source_id, row.id);
+  }
+  return map;
+}
+
+/** Versi satu-ID dari {@link resolveRecipeIds}. Null bila tidak ketemu. */
+export async function resolveRecipeId(idOrSlug: string | null | undefined): Promise<string | null> {
+  if (!idOrSlug) return null;
+  if (isUuid(idOrSlug)) return idOrSlug;
+  const map = await resolveRecipeIds([idOrSlug]);
+  return map.get(idOrSlug) ?? null;
+}
+
+/* ================================================================== *
  *  DB row types (mirror public schema)
  * ================================================================== */
 
@@ -726,16 +779,92 @@ export async function fetchUserRecipes(): Promise<Recipe[]> {
  *  PROFILES (anonymous user info)
  * ================================================================== */
 
-export async function fetchProfile(): Promise<{ full_name: string; avatar_url: string | null; role: string } | null> {
+/** Kunci penyimpanan lokal untuk bio, dipakai bila kolom `bio` belum ada di DB. */
+const BIO_STORAGE_KEY = 'bima_profile_bio';
+
+/**
+ * Penanda modul: kolom `profiles.bio` belum ada di database.
+ *
+ * Diisi begitu PostgREST mengeluh kolomnya tidak dikenal, supaya percobaan
+ * berikutnya tidak mengirim `bio` lagi (menghindari request 400 berulang).
+ * Otomatis "terbuka" lagi setelah halaman dimuat ulang — jadi begitu migrasi
+ * 014_profiles_bio.sql dijalankan, bio langsung ikut tersimpan ke DB.
+ */
+let bioColumnKnownMissing = false;
+/** Uji sekali saja per pemuatan halaman (dibagi antar pemanggil / StrictMode). */
+let bioProbe: Promise<boolean> | null = null;
+
+/** Adakah kolom `profiles.bio` di database? Hasilnya di-cache per pemuatan. */
+async function bioColumnExists(): Promise<boolean> {
+  if (bioColumnKnownMissing) return false;
+  if (!bioProbe) {
+    bioProbe = (async () => {
+      const userId = await getUserIdAsync();
+      if (!userId) return false;
+      const { error } = await supabase.from('profiles').select('bio').eq('id', userId).maybeSingle();
+      if (error) {
+        bioColumnKnownMissing = true;
+        return false;
+      }
+      return true;
+    })();
+  }
+  return bioProbe;
+}
+
+function readLocalBio(): string | null {
+  try {
+    return localStorage.getItem(BIO_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalBio(bio: string): void {
+  try {
+    localStorage.setItem(BIO_STORAGE_KEY, bio);
+  } catch {
+    /* abaikan */
+  }
+}
+
+/**
+ * Ambil profil pengguna (nama, bio, avatar, role).
+ *
+ * `bio` adalah kolom baru (migrasi 014_profiles_bio.sql). Selama migrasi itu
+ * belum dijalankan, query dengan `bio` gagal 400 dan SELURUH profil jadi null —
+ * nama yang sudah disimpan pun ikut hilang saat reload (itu penyebab utama
+ * "edit profil belum sinkron"). Jadi: coba dengan `bio`, kalau gagal ulangi
+ * tanpa `bio` dan ambil bio dari penyimpanan lokal.
+ */
+export async function fetchProfile(): Promise<{ full_name: string | null; bio: string | null; avatar_url: string | null; role: string } | null> {
   const userId = await getUserIdAsync();
   if (!userId) return null;
-  const { data, error } = await supabase
+
+  if (await bioColumnExists()) {
+    const full = await supabase
+      .from('profiles')
+      .select('full_name, bio, avatar_url, role')
+      .eq('id', userId)
+      .maybeSingle();
+    if (!full.error) {
+      const row = full.data as { full_name: string | null; bio: string | null; avatar_url: string | null; role: string };
+      // Kolom ada tapi kosong -> pakai nilai lokal (mis. diisi sebelum migrasi).
+      return { ...row, bio: row.bio ?? readLocalBio() };
+    }
+  }
+
+  // Fallback: kolom `bio` belum ada di DB.
+  const base = await supabase
     .from('profiles')
     .select('full_name, avatar_url, role')
     .eq('id', userId)
     .maybeSingle();
-  if (error || !data) return null;
-  return data as { full_name: string; avatar_url: string | null; role: string };
+  if (base.error || !base.data) return null;
+  return {
+    ...(base.data as { full_name: string | null; avatar_url: string | null; role: string }),
+    bio: readLocalBio(),
+  };
 }
 
 export async function isAdmin(): Promise<boolean> {
@@ -750,13 +879,61 @@ export async function isAdmin(): Promise<boolean> {
   return (data as { role: string }).role === 'admin';
 }
 
-export async function updateProfileName(fullName: string): Promise<boolean> {
+/**
+ * Simpan nama lengkap + status/bio ke `profiles`.
+ *
+ * Dua hal yang dulu bikin rusak:
+ * 1. `upsert({id, full_name})` bisa meng-reset kolom `role`; dan
+ * 2. satu percobaan yang gagal (mis. kolom `bio` belum ada) membuat SELURUH
+ *    penyimpanan gagal — termasuk nama.
+ *
+ * Sekarang: bio selalu disimpan lokal sebagai cadangan, lalu di-commit ke DB.
+ * Ada baris -> UPDATE (hanya kolom yang diubah); belum ada -> INSERT.
+ * Kalau `bio` ditolak server, ulangi tanpa `bio` supaya `full_name` tetap masuk.
+ */
+export async function updateProfile(
+  fullName: string,
+  bio?: string,
+): Promise<boolean> {
   const userId = await getUserIdAsync();
   if (!userId) return false;
-  const { error } = await supabase
+
+  // Cadangan lokal: membuat "Status / Bio" tetap bertahan walau kolom `bio`
+  // belum ditambahkan ke DB (migrasi 014_profiles_bio.sql belum dijalankan).
+  if (bio !== undefined) writeLocalBio(bio);
+
+  const { data: existing } = await supabase
     .from('profiles')
-    .upsert({ id: userId, full_name: fullName }, { onConflict: 'id' });
-  return !error;
+    .select('id')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const attempt = async (withBio: boolean) => {
+    const patch: Record<string, unknown> = { full_name: fullName };
+    if (withBio && bio !== undefined) patch.bio = bio;
+    return existing
+      ? await supabase.from('profiles').update(patch).eq('id', userId)
+      : await supabase.from('profiles').insert({ id: userId, ...patch });
+  };
+
+  const wantBio = bio !== undefined && (await bioColumnExists());
+  let { error } = await attempt(wantBio);
+  // Kolom `bio` belum ada di DB -> simpan nama saja, jangan gagalkan semuanya
+  // (dan jangan coba lagi di permintaan berikutnya sampai halaman dimuat ulang).
+  if (error && wantBio) {
+    bioColumnKnownMissing = true;
+    ({ error } = await attempt(false));
+  }
+  if (error) {
+    console.error('updateProfile:', error.message);
+    return false;
+  }
+  return true;
+}
+
+/** Kompatibilitas nama lama. */
+export async function updateProfileName(fullName: string): Promise<boolean> {
+  return updateProfile(fullName);
 }
 
 /* ================================================================== *
@@ -1020,7 +1197,9 @@ export async function fetchRecipeEngagement(
 ): Promise<{ comments: Record<string, number>; saves: Record<string, number> }> {
   const comments: Record<string, number> = {};
   const saves: Record<string, number> = {};
-  const ids = [...new Set(recipeIds.filter(Boolean))];
+  // Tabel ini ber-FK ke recipes(id): ID harus uuid, bukan slug/source_id.
+  const map = await resolveRecipeIds(recipeIds);
+  const ids = [...new Set([...map.values()])];
   if (ids.length === 0) return { comments, saves };
   const [cRes, sRes] = await Promise.all([
     supabase.from('recipe_comments').select('recipe_id').in('recipe_id', ids),
@@ -1031,6 +1210,13 @@ export async function fetchRecipeEngagement(
   }
   for (const row of (sRes.data as { recipe_id: string }[]) || []) {
     saves[row.recipe_id] = (saves[row.recipe_id] || 0) + 1;
+  }
+  // Kembalikan juga di bawah kunci asli, supaya pemanggil yang memakai
+  // slug/source_id (kartu dari data statis) tetap menemukan angkanya.
+  for (const [original, uuid] of map) {
+    if (original === uuid) continue;
+    if (comments[uuid] !== undefined) comments[original] = comments[uuid];
+    if (saves[uuid] !== undefined) saves[original] = saves[uuid];
   }
   return { comments, saves };
 }
@@ -1050,7 +1236,10 @@ export async function fetchRecipeStats(
   recipeIds: string[],
 ): Promise<Record<string, RecipeStats>> {
   const out: Record<string, RecipeStats> = {};
-  const ids = [...new Set(recipeIds.filter(Boolean))];
+  // View memakai recipes.id sebagai kunci, jadi slug/source_id harus dipetakan
+  // dulu — kalau tidak, PostgREST menolak dengan 22P02 dan semua angka 0.
+  const map = await resolveRecipeIds(recipeIds);
+  const ids = [...new Set([...map.values()])];
   if (ids.length === 0) return out;
   const { data } = await supabase.from('v_recipe_stats').select('*').in('recipe_id', ids);
   for (const row of (data as any[]) || []) {
@@ -1059,6 +1248,12 @@ export async function fetchRecipeStats(
       reviewsCount: Number(row.reviews_count) || 0,
       ratingAvg: row.rating_avg != null ? Number(row.rating_avg) : null,
     };
+  }
+  // Cermin ke kunci asli (slug/source_id) agar kartu statis ikut menampilkan.
+  for (const [original, uuid] of map) {
+    if (original === uuid) continue;
+    const hit = out[uuid];
+    if (hit) out[original] = { ...hit };
   }
   return out;
 }
@@ -1071,27 +1266,72 @@ export async function fetchLikedRecipeIds(): Promise<Set<string>> {
   return new Set(((data as { recipe_id: string }[]) || []).map((d) => d.recipe_id));
 }
 
+/** Like/rating user untuk sekumpulan resep, dikembalikan dengan kunci ASLI
+ *  (uuid DB *dan* slug/source_id) supaya kartu dari data statis tetap cocok. */
+async function fetchEngagementKeyed(
+  table: 'recipe_likes' | 'recipe_reviews',
+  recipeIds: string[],
+  userId: string,
+): Promise<Set<string>> {
+  const map = await resolveRecipeIds(recipeIds);
+  const ids = [...new Set([...map.values()])];
+  const result = new Set<string>();
+  if (ids.length === 0) return result;
+  const { data } = await supabase.from(table).select('recipe_id').eq('user_id', userId).in('recipe_id', ids);
+  const found = new Set(((data as { recipe_id: string }[]) || []).map((d) => d.recipe_id));
+  for (const [original, uuid] of map) {
+    if (found.has(uuid)) result.add(original);
+  }
+  return result;
+}
+
+/** Resep (oleh user ini) yang sudah diberi rating, dengan kunci asli. */
+export async function fetchRatedRecipeIds(recipeIds: string[]): Promise<Set<string>> {
+  const userId = await getUserIdAsync();
+  if (!userId) return new Set();
+  return fetchEngagementKeyed('recipe_reviews', recipeIds, userId);
+}
+
+/** Rating yang diberikan pengguna ini untuk satu resep (null bila belum). */
+export async function fetchMyRecipeRating(recipeId: string): Promise<number | null> {
+  const userId = await getUserIdAsync();
+  if (!userId) return null;
+  const dbId = await resolveRecipeId(recipeId);
+  if (!dbId) return null;
+  const { data } = await supabase
+    .from('recipe_reviews')
+    .select('rating')
+    .eq('recipe_id', dbId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  const row = data as { rating: number } | null;
+  return row?.rating ?? null;
+}
+
 /** Toggle like publik. Return state baru + count, null bila belum login. */
 export async function toggleRecipeLike(
   recipeId: string,
 ): Promise<{ liked: boolean; count: number } | null> {
   const userId = await getUserIdAsync();
   if (!userId) return null;
+  // Baris recipe_likes ber-FK ke recipes(id) — wajib uuid.
+  const dbId = await resolveRecipeId(recipeId);
+  if (!dbId) return null;
   const { data: existing } = await supabase
     .from('recipe_likes')
     .select('id')
-    .eq('recipe_id', recipeId)
+    .eq('recipe_id', dbId)
     .eq('user_id', userId)
     .maybeSingle();
   if (existing) {
     await supabase.from('recipe_likes').delete().eq('id', (existing as { id: string }).id);
   } else {
-    await supabase.from('recipe_likes').insert({ recipe_id: recipeId, user_id: userId });
+    await supabase.from('recipe_likes').insert({ recipe_id: dbId, user_id: userId });
   }
   const { count } = await supabase
     .from('recipe_likes')
     .select('*', { count: 'exact', head: true })
-    .eq('recipe_id', recipeId);
+    .eq('recipe_id', dbId);
   return { liked: !existing, count: count || 0 };
 }
 
@@ -1127,8 +1367,16 @@ export async function upsertRecipeReview(
 ): Promise<boolean> {
   const userId = await getUserIdAsync();
   if (!userId || rating < 1 || rating > 5) return false;
+  // recipe_id ber-FK ke recipes(id): terima uuid, slug, atau source_id —
+  // lalu petakan ke uuid. (Bug lama: kartu mengirim `source_id` sehingga
+  // PostgREST menolak dengan 22P02 dan rating tampak "tidak berfungsi".)
+  const dbId = await resolveRecipeId(recipeId);
+  if (!dbId) {
+    console.error('upsertRecipeReview: recipe tidak ditemukan untuk', recipeId);
+    return false;
+  }
   const { error } = await supabase.from('recipe_reviews').upsert(
-    { user_id: userId, recipe_id: recipeId, rating, review_text: reviewText || null },
+    { user_id: userId, recipe_id: dbId, rating, review_text: reviewText || null },
     { onConflict: 'user_id,recipe_id' },
   );
   if (error) {

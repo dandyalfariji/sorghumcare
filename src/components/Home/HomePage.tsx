@@ -298,7 +298,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           </div>
           <div className="hidden sm:block">
             <span className="text-xs font-bold text-[#163422] block leading-none">
-              {isGoogleUser ? (googleDisplayName || 'User') : 'Guest'}
+              {googleDisplayName || 'Guest'}
             </span>
             <span className="text-[10px] text-[#727972]">
               {isGoogleUser ? 'Health Explorer' : 'Guest Mode'}
