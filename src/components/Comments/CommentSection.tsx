@@ -7,7 +7,7 @@ import {
   deleteComment,
   fetchLikesForComments,
   toggleCommentLike,
-  supabase,
+  resolveRecipeId,
 } from '../../lib/supabase';
 
 interface CommentSectionProps {
@@ -57,6 +57,12 @@ function timeAgo(dateStr: string): string {
 function getAvatar(c: RecipeComment): string {
   if (c.avatar_url) return c.avatar_url;
   return `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(c.display_name)}&backgroundColor=cbebc3&textColor=163422`;
+}
+
+/** True hanya untuk uuid asli — kolom recipe_comments.recipe_id bertipe uuid,
+ *  jadi mengirim slug/source_id ke sana selalu ditolak PostgREST (22P02). */
+function isUuidLike(value: string | null | undefined): boolean {
+  return !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 /* ---- Single comment row ---- */
@@ -186,26 +192,34 @@ export const CommentSection: React.FC<CommentSectionProps> = ({
       setResolvedId(recipeId);
       return;
     }
-    if (!recipeSlug) {
-      setResolvedId(recipeId);
-      return;
-    }
-    supabase
-      .from('recipes')
-      .select('id')
-      .eq('slug', recipeSlug)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.id) {
-          setResolvedId(data.id);
-        } else {
-          setResolvedId(recipeId);
-        }
+    // Resolusi lewat helper bersama `resolveRecipeId` yang memetakan
+    // slug/source_id -> uuid. Versi lama di sini mencari `.eq('slug', recipeSlug)`
+    // saja; untuk resep bawaan (source_id seperti `nasi-goreng-sorgum-sd`) slug
+    // tidak cocok, sehingga `resolvedId` tetap berisi source_id dan setiap muat
+    // halaman detail mengirim GET recipe_comments dengan nilai non-uuid -> 400
+    // (PostgREST 22P02).
+    let alive = true;
+    resolveRecipeId(recipeId)
+      .then((id) => {
+        if (!alive) return;
+        setResolvedId(id ?? recipeId);
+      })
+      .catch(() => {
+        if (alive) setResolvedId(recipeId);
       });
+    return () => {
+      alive = false;
+    };
   }, [recipeId, recipeSlug]);
 
   const loadComments = useCallback(async () => {
-    if (!resolvedId) return;
+    // Jangan panggil API selama id masih berupa source_id/slug — kolom
+    // recipe_comments.recipe_id bertipe uuid, jadi request itu pasti 400.
+    // Cukup tunggu sampai `resolveRecipeId` selesai (ia setidaknya
+    // mengembalikan nilai awal, tidak akan menggantung).
+    if (!isUuidLike(resolvedId)) {
+      return;
+    }
     const data = await fetchComments(resolvedId);
     setComments(data);
     setLoading(false);
