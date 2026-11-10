@@ -70,14 +70,26 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [editNameInput, setEditNameInput] = useState(userName);
   const [editBioInput, setEditBioInput] = useState(userBio);
   
+  // Bahasa utama aplikasi = Bahasa Indonesia. Penyimpanan eksplisit 'English'
+  // dihormati sebagai pilihan pengguna; selain itu (belum pernah memilih /
+  // penyimpanan tidak tersedia) jatuh ke Bahasa Indonesia, BUKAN English.
   const [appLanguage, setAppLanguage] = useState<'English' | 'Bahasa Indonesia'>(() => {
     try {
       const saved = localStorage.getItem('bima_app_language');
-      return saved === 'Bahasa Indonesia' ? 'Bahasa Indonesia' : 'English';
+      return saved === 'English' ? 'English' : 'Bahasa Indonesia';
     } catch {
-      return 'English';
+      return 'Bahasa Indonesia';
     }
   });
+  // Sinkronkan atribut <html lang> dengan pilihan tersimpan saat halaman dimuat.
+  // Sebelumnya atribut hanya diubah di dalam applyAppLanguage(), sehingga
+  // setelah muat ulang <html lang> selalu kembali "id" apa pun pilihan yang
+  // tersimpan. Cukup dijalankan sekali saat komponen dipasang; perubahan
+  // berikutnya ditangani applyAppLanguage().
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.setAttribute('lang', appLanguage === 'English' ? 'en' : 'id');
+  }, []);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showToast, setShowToast] = useState<string | null>(null);
