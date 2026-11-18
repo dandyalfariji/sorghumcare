@@ -4,9 +4,24 @@
  * Routes: browser → `/bima-api/chat` (same-origin proxy) → backend.
  * Streaming: enabled by default; the proxy (vite.config.ts) relays SSE chunks
  * as they arrive.
+ *
+ * PENTING soal host deploy (lihat README bagian "Backend AI"):
+ * `/bima-api/*` BUKAN route yang dilayani aplikasi ini — ia hanya ada selama
+ * proses Vite yang punya `server.proxy` di vite.config.ts berjalan:
+ *   - `npm run dev`   → proxy hidup.
+ *   - `npm run preview` (Dockerfile/Dokploy) → Vite memakai ulang
+ *     `server.proxy` sebagai `preview.proxy`, jadi proxy hidup.
+ * Sebaliknya, di hosting yang menyajikan `dist/` sebagai berkas statis
+ * (nginx/panel hosting tanpa proses Node), path itu tidak punya tujuan:
+ * nginx menjawab `405 Not Allowed` (text/html) dan fitur AI mati walaupun
+ * katalog, Supabase, dan halaman lain tampak normal.
+ *
+ * Karena itu endpoint bisa dialihkan tanpa mengubah kode, lewat env build
+ * `VITE_BIMA_API_URL` (mis. `https://api.llmsorgum.online/api/chat`).
  */
-const BIMA_CHAT_PATH = '/bima-api/chat';
-const BIMA_MODEL = import.meta.env.VITE_BIMA_MODEL || '';
+const BIMA_CHAT_PATH =
+  (import.meta.env.VITE_BIMA_API_URL as string | undefined)?.trim() || '/bima-api/chat';
+
 const BIMA_API_KEY = import.meta.env.VITE_BIMA_API_KEY || '';
 
 export interface BimaChatMessage {
@@ -189,6 +204,21 @@ export async function bimaChat(
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
+    // nginx (dan static host lain) menjawab path proxy yang tidak ada dengan
+    // HTML 405 "Not Allowed" atau 404 — bukan JSON. Deteksi ini penting supaya
+    // yang tampil ke pengguna bukan dump HTML, melainkan penjelasan yang bisa
+    // ditindaklanjuti: build ini tidak dilayani proses Vite yang punya proxy.
+    const isHtml = /^\s*<(!doctype|html)/i.test(errText) || res.headers.get('content-type')?.includes('text/html');
+    if (isHtml) {
+      throw new Error(
+        `BIMA AI tidak tersedia di alamat deploy ini (HTTP ${res.status} dari ${BIMA_CHAT_PATH}). ` +
+        'Penyebab: halaman ini disajikan sebagai berkas statis, sehingga proxy `/bima-api` ' +
+        'tidak punya proses Vite yang meneruskannya ke backend AI. ' +
+        'Perbaikan: jalankan lewat runtime Node (`npm run preview`, seperti Dockerfile repo ini) ' +
+        'ATAU set `VITE_BIMA_API_URL` ke URL backend penuh saat build ' +
+        '(mis. https://api.llmsorgum.online/api/chat).'
+      );
+    }
     let cleanMsg = errText;
     try {
       const parsed = JSON.parse(errText);

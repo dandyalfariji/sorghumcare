@@ -1145,8 +1145,27 @@ export default function App() {
 
   const isAdminRoute = parseRoute(getCurrentPath()).routeType === 'admin';
 
+  /**
+   * Workspace generator (chat/wizard) memakai layout "viewport penuh": root
+   * mengunci tinggi ke viewport dan hanya panel isi yang scroll.
+   *
+   * Kenapa perlu: sidebar memakai `md:sticky`, dan sticky hanya menempel pada
+   * container scroll-nya. Dulu root-nya `min-h-screen` (tinggi ikut konten),
+   * jadi yang scroll adalah dokumen — bukan panel chat — sehingga sidebar
+   * ikut terangkat ke atas begitu balasan AI memanjang. Dengan root
+   * `h-[100dvh] overflow-hidden`, sidebar tetap diam dan hanya <main> chat
+   * yang scroll (lihat `min-h-0` + `overflow-y-auto` di bawah).
+   */
+  const isGenerateWorkspace =
+    currentTab === 'generate' && !selectedRecipeDetail && !isAdminRoute;
+
   return (
-    <div className="min-h-screen bg-[#F9F9F7] text-[#1A1C1B] font-['Manrope',sans-serif] flex flex-col justify-between overflow-x-hidden" data-images-disabled={imagesEnabled ? undefined : 'true'}>
+    <div
+      className={`bg-[#F9F9F7] text-[#1A1C1B] font-['Manrope',sans-serif] flex flex-col overflow-x-hidden ${
+        isGenerateWorkspace ? 'h-[100dvh] overflow-hidden' : 'min-h-screen justify-between'
+      }`}
+      data-images-disabled={imagesEnabled ? undefined : 'true'}
+    >
       {/* Admin Panel — hanya ditampilkan saat route /admin */}
       {isAdminRoute && (
         <AdminLayout active={adminSection}>
@@ -1273,7 +1292,7 @@ export default function App() {
           )}
 
           {currentTab === 'generate' && (
-                                <div className="flex-1 flex flex-row h-screen w-full relative overflow-hidden">
+                                <div className="flex-1 min-h-0 flex flex-row h-full w-full relative overflow-hidden">
                                   {/* Sidebar (left) — hidden completely when toggled off */}
                                   {generatorMode === 'chat' && isSidebarOpen && (
                                     <Sidebar
@@ -1325,7 +1344,7 @@ export default function App() {
               )}
 
               {/* Generator Workspace: Wizard or Chat */}
-                            <div className="flex-1 flex flex-col h-full w-full relative pb-6 overflow-y-auto">
+                            <div className="flex-1 min-h-0 flex flex-col h-full w-full relative pb-6 overflow-y-auto">
                 {generatorMode === 'wizard' ? (
                   /* Wizard Flow (4-Step) */
                   <main className="flex-1 flex flex-col justify-between py-3 sm:py-6">
@@ -1387,7 +1406,7 @@ export default function App() {
                   </main>
                 ) : (
                   /* Chat Workspace */
-                  <div className="flex-1 flex flex-col h-full w-full relative">
+                  <div className="flex-1 min-h-0 flex flex-col h-full w-full relative">
                     {/* TopAppBar matching clean specification */}
                     <header className="bg-[#F9F9F7]/80 backdrop-blur-md sticky top-0 w-full z-30 flex items-center justify-between px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -1430,7 +1449,7 @@ export default function App() {
                       </div>
                     </header>
 
-                    <main className="flex-1 overflow-y-auto px-4 md:px-8 pb-36 pt-6 md:pt-10 flex flex-col items-center">
+                    <main className="flex-1 min-h-0 overflow-y-auto px-4 md:px-8 pb-36 pt-6 md:pt-10 flex flex-col items-center">
                       <div className="w-full max-w-3xl flex-1 flex flex-col justify-center">
                         {chatMessages.length === 0 ? (
                           <div className="w-full max-w-3xl flex-1 flex flex-col justify-center min-h-[55vh]">
@@ -1633,7 +1652,9 @@ export default function App() {
                       </div>
                     </main>
 
-                    {/* Input Bar docked cleanly at bottom without navbar */}
+                    {/* Input Bar docked cleanly at bottom without navbar. Di mobile
+                        `fixed` agar tetap terlihat, di desktop `absolute` di dalam
+                        panel chat (bukan viewport) supaya tidak ikut terangkat. */}
                     <div className="fixed md:absolute bottom-0 left-0 right-0 z-20">
                       <ChatInputBar
                         onSendMessage={handleSendMessage}

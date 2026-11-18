@@ -24,10 +24,27 @@ npm run lint       # cek tipe TypeScript
 | `VITE_UNSPLASH_ACCESS_KEY` | browser | Opsional — gambar resep dari Unsplash |
 | `BIMA_API_KEY` | server (proxy) | Consumer key backend (`bima_live_…`), **tanpa** prefix `VITE_` agar tidak ter-bundle |
 | `BIMA_BACKEND_ORIGIN` | server (proxy) | Opsional — default `https://api.llmsorgum.online` |
+| `VITE_BIMA_API_URL` | browser | Opsional — URL chat penuh, hanya untuk host TANPA proses Node (lihat di bawah) |
 
 Browser memanggil `/bima-api/*`; proxy di `vite.config.ts` meneruskannya ke
 `{BIMA_BACKEND_ORIGIN}/api/*` sambil menambahkan `X-Api-Key`, jadi key backend
 tidak pernah sampai ke browser.
+
+### Kenapa fitur AI jalan di localhost tapi 405 di web hasil deploy
+
+`/bima-api/*` **bukan** route milik aplikasi ini — ia hanya hidup selama proses
+Vite yang punya `server.proxy` berjalan:
+
+- `npm run dev` → proxy hidup (inilah "jalan di localhost").
+- `npm run preview` → Vite memakai ulang `server.proxy` sebagai `preview.proxy`,
+  jadi proxy juga hidup. Dockerfile di repo ini memakai jalur ini.
+- Hosting statis (nginx/panel hosting yang hanya menyajikan `dist/`) → tidak ada
+  proses Node di belakang domain, jadi `POST /bima-api/chat` dijawab
+  `405 Not Allowed` (text/html) oleh nginx. Tampilan aplikasi normal, katalog dan
+  Supabase aman, hanya AI yang mati.
+
+Jadi pilih salah satu: deploy sebagai **aplikasi Node** (`npm run preview`),
+atau set `VITE_BIMA_API_URL` ke URL backend penuh saat build.
 
 ## Deploy
 
