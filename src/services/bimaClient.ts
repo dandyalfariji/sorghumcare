@@ -267,14 +267,21 @@ export async function bimaChat(
     // ditindaklanjuti: build ini tidak dilayani proses Vite yang punya proxy.
     const isHtml = /^\s*<(!doctype|html)/i.test(errText) || res.headers.get('content-type')?.includes('text/html');
     if (isHtml) {
+      // Catatan penting: `vite preview` BUKAN perbaikannya. Panel hosting menolak
+      // perintah itu (errSTART_DEV_SERVER: "runs the development server of a
+      // browser frontend (such as ng serve or vite) ... This project builds web
+      // pages"), jadi menyarankannya hanya menyesatkan. Yang benar adalah
+      // menjalankan situs ini sebagai proses Node lewat `npm start`
+      // (server.mjs), yang menyajikan dist/ sekaligus meneruskan /bima-api/*
+      // ke backend dengan kunci API tetap di sisi server.
       throw new Error(
         `BIMA AI tidak tersedia di alamat deploy ini (HTTP ${res.status} dari ${chatPath}). ` +
-        'Penyebab: halaman ini disajikan sebagai berkas statis, sehingga proxy `/bima-api` ' +
-        'tidak punya proses Vite yang meneruskannya ke backend AI. ' +
-        'Perbaikan: jalankan lewat runtime Node (`npm run preview`, seperti Dockerfile repo ini) ' +
-        'ATAU isi "Endpoint AI (override)" di panel admin (Pengaturan) ' +
-        'dengan URL backend penuh (mis. https://api.llmsorgum.online/api/chat) — ' +
-        'nilainya berlaku tanpa build ulang.'
+        'Penyebab: situs ini dijalankan sebagai berkas statis (tanpa proses Node), ' +
+        'sehingga `/bima-api` tidak punya apa pun yang meneruskannya ke backend AI — ' +
+        'nginx menjawab 405 dalam bentuk HTML. ' +
+        'Perbaikan: jalankan situs sebagai aplikasi Node.js dengan start command ' +
+        '`npm start` (server.mjs di repo ini) — proxy `/bima-api` beserta `X-Api-Key` ' +
+        'akan aktif otomatis dan kunci tetap aman di server.'
       );
     }
     let cleanMsg = errText;
