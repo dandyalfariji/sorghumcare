@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { MessageCircle, Reply, Trash2, Send, ChevronDown, ChevronUp, Heart } from 'lucide-react';
+import { MessageCircle, Reply, Trash2, Send, ChevronDown, ChevronUp, Heart, Flag } from 'lucide-react';
 import {
   RecipeComment,
   fetchComments,
@@ -9,6 +9,7 @@ import {
   toggleCommentLike,
   resolveRecipeId,
 } from '../../lib/supabase';
+import { ReportModal } from '../Modals/ReportModal';
 
 interface CommentSectionProps {
   recipeId: string;
@@ -72,10 +73,11 @@ const CommentItem: React.FC<{
   currentUserId: string | null;
   onReply: (parentId: string) => void;
   onDelete: (id: string) => void;
+  onReport: (node: CommentNode) => void;
   likeCounts: Record<string, number>;
   likedByUser: Set<string>;
   onToggleLike: (commentId: string) => void;
-}> = ({ node, depth, currentUserId, onReply, onDelete, likeCounts, likedByUser, onToggleLike }) => {
+}> = ({ node, depth, currentUserId, onReply, onDelete, onReport, likeCounts, likedByUser, onToggleLike }) => {
   const [showReplies, setShowReplies] = useState(depth < 2);
   const isOwn = currentUserId === node.user_id;
   const maxDepth = 4;
@@ -132,6 +134,18 @@ const CommentItem: React.FC<{
                 <Trash2 className="w-3 h-3" /> Hapus
               </button>
             )}
+            {/* Laporkan: hanya untuk komentar orang lain. Sebelumnya tidak ada
+                UI pelaporan sama sekali sehingga halaman Laporan admin selalu
+                kosong. */}
+            {!isOwn && (
+              <button
+                onClick={() => onReport(node)}
+                title="Laporkan komentar ini ke admin"
+                className="flex items-center gap-1 text-[10px] font-bold text-[#727972] hover:text-[#7c5800] transition-colors cursor-pointer"
+              >
+                <Flag className="w-3 h-3" /> Laporkan
+              </button>
+            )}
           </div>
 
           {/* Nested replies toggle */}
@@ -152,6 +166,7 @@ const CommentItem: React.FC<{
                   currentUserId={currentUserId}
                   onReply={onReply}
                   onDelete={onDelete}
+                  onReport={onReport}
                   likeCounts={likeCounts}
                   likedByUser={likedByUser}
                   onToggleLike={onToggleLike}
@@ -185,6 +200,8 @@ export const CommentSection: React.FC<CommentSectionProps> = ({
   // Like state
   const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
   const [likedByUser, setLikedByUser] = useState<Set<string>>(new Set());
+  // Komentar yang sedang dilaporkan (null = modal tertutup)
+  const [reportTarget, setReportTarget] = useState<RecipeComment | null>(null);
 
   useEffect(() => {
     const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recipeId);
@@ -363,6 +380,7 @@ export const CommentSection: React.FC<CommentSectionProps> = ({
                     if (input) input.focus();
                   }}
                   onDelete={handleDelete}
+                  onReport={(n) => setReportTarget(n)}
                   likeCounts={likeCounts}
                   likedByUser={likedByUser}
                   onToggleLike={handleToggleLike}
@@ -416,6 +434,19 @@ export const CommentSection: React.FC<CommentSectionProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal laporan komentar */}
+      <ReportModal
+        open={!!reportTarget}
+        targetType="comment"
+        targetId={reportTarget?.id ?? ''}
+        targetPreview={
+          reportTarget
+            ? `"${reportTarget.content}" — ${reportTarget.display_name || 'Anonim'}`
+            : undefined
+        }
+        onClose={() => setReportTarget(null)}
+      />
     </section>
   );
 };

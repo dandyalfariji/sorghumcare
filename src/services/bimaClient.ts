@@ -19,10 +19,58 @@
  * Karena itu endpoint bisa dialihkan tanpa mengubah kode, lewat env build
  * `VITE_BIMA_API_URL` (mis. `https://api.llmsorgum.online/api/chat`).
  */
-const BIMA_CHAT_PATH =
-  (import.meta.env.VITE_BIMA_API_URL as string | undefined)?.trim() || '/bima-api/chat';
+/**
+ * Nilai yang bisa diubah admin dari panel TANPA build ulang.
+ *
+ * Sebelumnya endpoint chat dipatok saat build lewat `VITE_BIMA_API_URL`.
+ * Akibatnya, kalau proxy `/bima-api` mati di produksi (persis kasus 405 di
+ * sorghumcare.kolab.top), satu-satunya jalan adalah build + deploy ulang.
+ * Sekarang admin bisa mengisi `ai_endpoint_override` di halaman Pengaturan dan
+ * perubahan langsung dipakai tanpa build.
+ */
+const BUILD_CHAT_PATH = '/bima-api/chat';
 
+/**
+ * Consumer API key untuk backend (bima_...). Dibaca dari env ber-prefix VITE_
+ * hanya sebagai jalur darurat — lihat peringatan di `.env.example`: nilai
+ * ber-prefix VITE_ ikut ter-bundle ke JavaScript browser dan bisa dibaca publik.
+ */
 const BIMA_API_KEY = import.meta.env.VITE_BIMA_API_KEY || '';
+
+const RUNTIME: { endpointOverride?: string; model?: string } = {};
+
+/**
+ * Setel ulang endpoint/model AI dari `admin_configs` (dipanggil App saat
+ * konfigurasi admin selesai dimuat). Nilai kosong atau tidak valid diabaikan,
+ * jadi konfigurasi yang salah tidak bisa mematikan fitur AI.
+ */
+export function configureAiRuntime(opts: {
+  endpointOverride?: string | null;
+  model?: string | null;
+}): void {
+  const endpoint = (opts.endpointOverride ?? '').trim();
+  if (endpoint === '') {
+    RUNTIME.endpointOverride = undefined;
+  } else if (/^(\/|https?:\/\/)/i.test(endpoint)) {
+    RUNTIME.endpointOverride = endpoint;
+  } else {
+    // Tolak skema aneh (mis. `javascript:`); biarkan default tetap dipakai.
+    console.warn('ai_endpoint_override diabaikan (wajib /path atau http(s)://):', endpoint);
+    RUNTIME.endpointOverride = undefined;
+  }
+
+  const model = (opts.model ?? '').trim();
+  RUNTIME.model = model === '' ? undefined : model;
+}
+
+/** Endpoint chat yang sedang aktif — dipakai juga untuk diagnostik panel. */
+export function getActiveChatPath(): string {
+  return (
+    RUNTIME.endpointOverride ||
+    (import.meta.env.VITE_BIMA_API_URL as string | undefined)?.trim() ||
+    BUILD_CHAT_PATH
+  );
+}
 
 export interface BimaChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -173,9 +221,18 @@ export async function bimaChat(
         'X-Stream': stream ? 'true' : 'false',
         'X-Max-Tokens': '8192',
       };
-    
-    // We intentionally do NOT send X-Model, X-Server-Url, or X-LLM-API-Key from the frontend.
-    // This forces the backend to use the default LLM settings configured by the Admin in the dashboard.
+
+    // Endpoint ditentukan saat panggilan (bukan saat bundle dimuat) supaya
+    // `ai_endpoint_override` dari panel admin bisa langsung berlaku.
+    const chatPath = getActiveChatPath();
+
+    // Model: parameter eksplisit dari pemanggil menang; kalau tidak ada,
+    // pakai nilai yang diset admin di panel (kalau ada). Sebelumnya opsi ini
+    // tidak pernah dipakai sehingga kontrol "Model AI" tidak berefek apa pun.
+    const model = (opts.model ?? RUNTIME.model ?? '').trim();
+    if (model) headers['X-Model'] = model;
+
+    // We intentionally do NOT send X-Server-Url or X-LLM-API-Key from the frontend.
     // The X-Api-Key header below is strictly for Consumer API Keys (bima_...), not LLM provider keys.
     if (BIMA_API_KEY) headers['X-Api-Key'] = BIMA_API_KEY;
       const payload: Record<string, unknown> = { message };
@@ -192,7 +249,7 @@ export async function bimaChat(
 
   let res: Response;
   try {
-    res = await fetch(BIMA_CHAT_PATH, {
+    res = await fetch(chatPath, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -211,12 +268,13 @@ export async function bimaChat(
     const isHtml = /^\s*<(!doctype|html)/i.test(errText) || res.headers.get('content-type')?.includes('text/html');
     if (isHtml) {
       throw new Error(
-        `BIMA AI tidak tersedia di alamat deploy ini (HTTP ${res.status} dari ${BIMA_CHAT_PATH}). ` +
+        `BIMA AI tidak tersedia di alamat deploy ini (HTTP ${res.status} dari ${chatPath}). ` +
         'Penyebab: halaman ini disajikan sebagai berkas statis, sehingga proxy `/bima-api` ' +
         'tidak punya proses Vite yang meneruskannya ke backend AI. ' +
         'Perbaikan: jalankan lewat runtime Node (`npm run preview`, seperti Dockerfile repo ini) ' +
-        'ATAU set `VITE_BIMA_API_URL` ke URL backend penuh saat build ' +
-        '(mis. https://api.llmsorgum.online/api/chat).'
+        'ATAU isi "Endpoint AI (override)" di panel admin (Pengaturan) ' +
+        'dengan URL backend penuh (mis. https://api.llmsorgum.online/api/chat) — ' +
+        'nilainya berlaku tanpa build ulang.'
       );
     }
     let cleanMsg = errText;

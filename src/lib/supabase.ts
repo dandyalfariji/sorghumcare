@@ -8,6 +8,9 @@ import type {
   NutritionHighlight,
   AdminConfig,
   Report,
+  AdminUserRow,
+  AdminReviewRow,
+  AdminAuditEntry,
 } from '../types';
 import { getRecipeImageSync } from '../data/imageAssets';
 
@@ -1501,6 +1504,324 @@ export async function adminDeleteRecipe(recipeId: string): Promise<boolean> {
     .eq('id', recipeId);
   if (error) {
     console.error('adminDeleteRecipe error:', error.message);
+    return false;
+  }
+  return true;
+}
+
+/* ================================================================== *
+ *  ADMIN — terbitkan / tarik resep
+ * ================================================================== */
+
+/**
+ * Set `recipes.is_published` dari panel admin (terbitkan / tarik dari Explore).
+ *
+ * Hanya menyentuh kolom itu — tidak mengubah `created_by`, jadi resep tetap
+ * milik pembuatnya dan tombol "Unggah" miliknya tetap konsisten.
+ * RLS: policy `admins can delete any recipe` (008) hanya untuk DELETE, jadi
+ * UPDATE oleh admin butuh `adminSetRecipePublished` di migrasi 015.
+ */
+export async function adminSetRecipePublished(
+  recipeId: string,
+  published: boolean,
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('recipes')
+    .update({ is_published: published })
+    .eq('id', recipeId);
+  if (error) {
+    console.error('adminSetRecipePublished error:', error.message);
+    return false;
+  }
+  return true;
+}
+
+/* ================================================================== *
+ *  ADMIN — ubah data resep (koreksi hasil AI)
+ * ================================================================== */
+
+/** Kolom yang boleh dikoreksi admin pada tabel `recipes`. */
+export interface AdminRecipeEdit {
+  title: string
+  subtitle: string | null
+  image_url: string | null
+  target_age_label: string | null
+  prep_time_minutes: number | null
+  cook_time_minutes: number | null
+  servings: number
+  calories_estimate: number | null
+  fiber_grams: number | null
+  protein_grams: number | null
+  glycemic_index: DbRecipeRow['glycemic_index'] | null
+  nutrition_title: string | null
+  nutrition_description: string | null
+  tags: string[]
+  ingredients: { name: string; amount: string; notes?: string | null }[]
+  steps: { step_number: number; title: string; instruction: string; timer_minutes?: number | null; tip?: string | null }[]
+}
+
+/**
+ * Simpan koreksi admin atas sebuah resep (judul, deskripsi, nutrisi, bahan,
+ * langkah). Bahan dan langkah diganti penuh (delete + insert) — sama seperti
+ * jalur `upsertRecipe` yang sudah teruji, supaya tidak ada sisa baris yatim.
+ */
+export async function adminUpdateRecipeDetails(
+  recipeId: string,
+  edit: AdminRecipeEdit,
+): Promise<boolean> {
+  const row: Partial<DbRecipeRow> = {
+    title: edit.title,
+    subtitle: edit.subtitle,
+    image_url: edit.image_url,
+    target_age_label: edit.target_age_label,
+    prep_time_minutes: edit.prep_time_minutes,
+    cook_time_minutes: edit.cook_time_minutes,
+    servings: edit.servings,
+    calories_estimate: edit.calories_estimate,
+    fiber_grams: edit.fiber_grams,
+    protein_grams: edit.protein_grams,
+    glycemic_index: edit.glycemic_index,
+    nutrition_title: edit.nutrition_title,
+    nutrition_description: edit.nutrition_description,
+    tags: edit.tags,
+  }
+
+  const { error } = await supabase.from('recipes').update(row).eq('id', recipeId)
+  if (error) {
+    console.error('adminUpdateRecipeDetails error:', error.message)
+    return false
+  }
+
+  await supabase.from('recipe_ingredients').delete().eq('recipe_id', recipeId)
+  if (edit.ingredients.length) {
+    const { error: ingErr } = await supabase.from('recipe_ingredients').insert(
+      edit.ingredients.map((ing, idx) => ({
+        recipe_id: recipeId,
+        name: ing.name,
+        amount: ing.amount,
+        notes: ing.notes || null,
+        sort_order: idx,
+      })),
+    )
+    if (ingErr) {
+      console.error('adminUpdateRecipeDetails ingredients error:', ingErr.message)
+      return false
+    }
+  }
+
+  await supabase.from('recipe_steps').delete().eq('recipe_id', recipeId)
+  if (edit.steps.length) {
+    const { error: stepErr } = await supabase.from('recipe_steps').insert(
+      edit.steps.map((s) => ({
+        recipe_id: recipeId,
+        step_number: s.step_number,
+        title: s.title,
+        instruction: s.instruction,
+        timer_minutes: s.timer_minutes ?? null,
+        tip: s.tip || null,
+      })),
+    )
+    if (stepErr) {
+      console.error('adminUpdateRecipeDetails steps error:', stepErr.message)
+      return false
+    }
+  }
+
+  return true
+}
+
+/* ================================================================== *
+ *  ADMIN — kelola pengguna
+ * ================================================================== */
+/**
+ * Ambil semua profil untuk halaman Kelola Pengguna.
+ * Butuh policy "admins can read all profiles" (migrasi 015); tanpa itu
+ * Supabase mengembalikan hanya baris milik pemanggil.
+ */
+export async function adminFetchUsers(): Promise<AdminUserRow[]> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, avatar_url, role, created_at')
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error('adminFetchUsers error:', error.message);
+    return [];
+  }
+
+  const rows = (data as AdminUserRow[]) || [];
+  if (!rows.length) return rows;
+
+  // Hitungan aktivitas diambil terpisah (PostgREST tidak bisa GROUP BY).
+  const [recipes, comments] = await Promise.all([
+    supabase.from('recipes').select('created_by'),
+    supabase.from('recipe_comments').select('user_id'),
+  ]);
+
+  const countBy = (list: { [k: string]: string | null }[] | null, key: string) => {
+    const map = new Map<string, number>();
+    for (const item of list || []) {
+      const id = item?.[key];
+      if (!id) continue;
+      map.set(id, (map.get(id) || 0) + 1);
+    }
+    return map;
+  };
+
+  const recipeCounts = countBy(recipes.data as never, 'created_by');
+  const commentCounts = countBy(comments.data as never, 'user_id');
+
+  return rows.map((r) => ({
+    ...r,
+    recipe_count: recipeCounts.get(r.id) || 0,
+    comment_count: commentCounts.get(r.id) || 0,
+  }));
+}
+
+/**
+ * Ubah peran seorang pengguna. Dijalankan lewat fungsi SECURITY DEFINER
+ * `admin_set_user_role` karena RLS tidak bisa membatasi per-kolom — memberi
+ * admin policy UPDATE di `profiles` akan sekaligus mengizinkannya mengubah
+ * `full_name` orang lain.
+ */
+export async function adminSetUserRole(userId: string, role: string): Promise<boolean> {
+  const { error } = await supabase.rpc('admin_set_user_role', {
+    target_id: userId,
+    new_role: role,
+  });
+  if (error) {
+    console.error('adminSetUserRole error:', error.message);
+    return false;
+  }
+  return true;
+}
+
+/* ================================================================== *
+ *  ADMIN — moderasi ulasan
+ * ================================================================== */
+
+/** Semua ulasan untuk moderasi, dilengkapi judul resep + nama penulis. */
+export async function adminFetchReviews(): Promise<AdminReviewRow[]> {
+  const { data, error } = await supabase
+    .from('recipe_reviews')
+    .select('id, user_id, recipe_id, rating, review_text, created_at')
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error('adminFetchReviews error:', error.message);
+    return [];
+  }
+
+  const rows = (data as AdminReviewRow[]) || [];
+  if (!rows.length) return rows;
+
+  const recipeIds = Array.from(new Set(rows.map((r) => r.recipe_id)));
+  const userIds = Array.from(new Set(rows.map((r) => r.user_id)));
+
+  const [recipes, profiles] = await Promise.all([
+    supabase.from('recipes').select('id, title').in('id', recipeIds),
+    supabase.from('profiles').select('id, full_name').in('id', userIds),
+  ]);
+
+  const titleById = new Map<string, string>();
+  for (const r of (recipes.data as { id: string; title: string }[]) || []) {
+    titleById.set(r.id, r.title);
+  }
+  const nameById = new Map<string, string>();
+  for (const p of (profiles.data as { id: string; full_name: string | null }[]) || []) {
+    if (p.full_name) nameById.set(p.id, p.full_name);
+  }
+
+  return rows.map((r) => ({
+    ...r,
+    recipe_title: titleById.get(r.recipe_id) ?? null,
+    author_name: nameById.get(r.user_id) ?? null,
+  }));
+}
+
+/** Hapus ulasan sebagai admin. Butuh policy "admins can delete any review" (015). */
+export async function adminDeleteReview(reviewId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('recipe_reviews')
+    .delete()
+    .eq('id', reviewId);
+  if (error) {
+    console.error('adminDeleteReview error:', error.message);
+    return false;
+  }
+  return true;
+}
+
+/* ================================================================== *
+ *  ADMIN — audit log
+ * ================================================================== */
+
+/**
+ * Catat tindakan admin. Sengaja TIDAK pernah melempar error: kegagalan
+ * pencatatan tidak boleh membatalkan tindakan yang sudah berhasil.
+ * Nama pelaku disimpan apa adanya supaya log tetap terbaca walau baris
+ * profil pemakainya kelak dihapus.
+ */
+export async function adminLogAction(entry: {
+  action: string;
+  targetType?: string | null;
+  targetId?: string | null;
+  detail?: string | null;
+  actorName?: string | null;
+}): Promise<void> {
+  const userId = await getUserIdAsync();
+  if (!userId) return;
+  try {
+    await supabase.from('admin_audit_log').insert({
+      actor_id: userId,
+      actor_name: entry.actorName ?? null,
+      action: entry.action,
+      target_type: entry.targetType ?? null,
+      target_id: entry.targetId ?? null,
+      detail: entry.detail ?? null,
+    });
+  } catch (e) {
+    console.warn('adminLogAction gagal (diabaikan):', e);
+  }
+}
+
+/** Ambil jejak tindakan admin, terbaru dulu. */
+export async function adminFetchAuditLog(limit = 100): Promise<AdminAuditEntry[]> {
+  const { data, error } = await supabase
+    .from('admin_audit_log')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error('adminFetchAuditLog error:', error.message);
+    return [];
+  }
+  return (data as AdminAuditEntry[]) || [];
+}
+
+/* ================================================================== *
+ *  LAPORAN PENGGUNA — kirim laporan
+ * ================================================================== */
+
+/**
+ * Kirim laporan terhadap sebuah konten. Sebelumnya tabel `reports` ada,
+ * policy insert-nya ada (008), tetapi TIDAK ADA satu pun UI yang memanggilnya —
+ * sehingga halaman Laporan admin mustahil terisi.
+ */
+export async function submitReport(input: {
+  targetType: Report['target_type'];
+  targetId: string;
+  reason: string;
+}): Promise<boolean> {
+  const userId = await getUserIdAsync();
+  if (!userId) return false;
+  const { error } = await supabase.from('reports').insert({
+    reporter_id: userId,
+    target_type: input.targetType,
+    target_id: input.targetId,
+    reason: input.reason,
+    status: 'pending',
+  });
+  if (error) {
+    console.error('submitReport error:', error.message);
     return false;
   }
   return true;

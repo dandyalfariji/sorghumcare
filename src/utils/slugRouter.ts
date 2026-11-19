@@ -32,6 +32,47 @@ export interface ParsedRoute {
 }
 
 /**
+ * Daftar bagian panel admin yang dikenal — SATU sumber kebenaran.
+ * Dipakai `parseRoute` (validasi URL) dan `AdminLayout` (daftar menu) supaya
+ * tidak ada lagi ketidakcocokan antara label menu dan bagian yang aktif.
+ */
+export const ADMIN_SECTIONS = [
+  'dashboard',
+  'komentar',
+  'laporan',
+  'resep',
+  'pengguna',
+  'ulasan',
+  'aktivitas',
+  'pengaturan',
+] as const;
+
+export type AdminSection = (typeof ADMIN_SECTIONS)[number];
+
+export function isAdminSection(value: string | undefined | null): value is AdminSection {
+  return !!value && (ADMIN_SECTIONS as readonly string[]).includes(value);
+}
+
+/**
+ * Bagian admin aktif untuk sebuah path, dihitung LANGSUNG dari path itu.
+ *
+ * Kenapa tidak memakai state `adminSection`: dulu `AdminLayout` menerima
+ * `active` dari state yang baru di-set di dalam handler navigasi, sehingga
+ * saat render pertama (mis. buka /#/admin/komentar dari address bar atau
+ * hard refresh) nilainya masih default dan menu yang ter-highlight salah.
+ */
+export function getAdminSectionFromPath(path: string): AdminSection {
+  const parsed = parseRoute(path);
+  if (parsed.routeType !== 'admin') return 'dashboard';
+  return isAdminSection(parsed.slug) ? parsed.slug : 'dashboard';
+}
+
+/** Versi yang membaca URL saat ini. */
+export function getAdminSectionFromUrl(): AdminSection {
+  return getAdminSectionFromPath(getCurrentPath());
+}
+
+/**
  * Normalizes browser path from both hash (#/...) and pathname (/...)
  */
 export function getCurrentPath(): string {
@@ -147,10 +188,10 @@ export function parseRoute(path: string): ParsedRoute {
   if (first === 'admin') {
     return {
       routeType: 'admin',
-      // Bagian admin (dashboard/komentar/laporan/resep/pengaturan) harus
-      // diteruskan. Sebelumnya tidak diisi, sehingga semua menu admin
-      // selalu menampilkan Dashboard walau URL-nya berubah.
-      slug: second || undefined,
+      // Validasi memakai daftar bagian yang sama dengan menu admin
+      // (ADMIN_SECTIONS) supaya label menu dan halaman yang aktif selalu
+      // sinkron. Bagian asing -> 'dashboard' (bukan halaman kosong).
+      slug: isAdminSection(second) ? second : 'dashboard',
       tab: 'profile',
     };
   }

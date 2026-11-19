@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Trash2, MessageCircle, RefreshCw, Loader2, AlertTriangle, Search } from 'lucide-react'
-import { supabase, adminDeleteComment } from '../../lib/supabase'
+import { supabase, adminDeleteComment, adminLogAction } from '../../lib/supabase'
 import type { RecipeComment } from '../../lib/supabase'
 
 /** Potong teks panjang agar tabel tetap ringkas. */
@@ -69,6 +69,13 @@ export const AdminComments: React.FC = () => {
 
     if (!ok) {
       setError('Gagal menghapus komentar. Silakan coba lagi.')
+    } else {
+      await adminLogAction({
+        action: 'comment.delete',
+        targetType: 'comment',
+        targetId: comment.id,
+        detail: `"${truncate(comment.content, 80)}" oleh ${comment.display_name || 'Anonim'}`,
+      })
     }
 
     setDeletingId(null)

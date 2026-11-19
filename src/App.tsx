@@ -20,7 +20,9 @@ import {
   getCurrentPath, 
   parseRoute, 
   navigateToSlug, 
-  RouteSlugs 
+  RouteSlugs,
+  getAdminSectionFromPath,
+  ADMIN_SECTIONS
 } from './utils/slugRouter';
 import { 
   findRecipeBySlug, 
@@ -42,6 +44,9 @@ import { AdminDashboard } from './components/Admin/AdminDashboard';
 import { AdminComments } from './components/Admin/AdminComments';
 import { AdminReports } from './components/Admin/AdminReports';
 import { AdminRecipes } from './components/Admin/AdminRecipes';
+import { AdminUsers } from './components/Admin/AdminUsers';
+import { AdminReviews } from './components/Admin/AdminReviews';
+import { AdminAuditLog } from './components/Admin/AdminAuditLog';
 import { AdminSettings } from './components/Admin/AdminSettings';
 
 import { WizardProgressBar } from './components/Wizard/WizardProgressBar';
@@ -64,7 +69,7 @@ import { useData } from './lib/dataContext';
 import { useAuth } from './lib/AuthProvider';
 import { upsertRecipe, fetchRecipeBySlug, fetchSavedRecipeIds, createChatSession, saveChatMessages, fetchChatSessions, fetchChatSessionMessages, renameChatSession, touchChatSession, mapRecipe, deleteChatSession, fetchSessionRecipeIds, deleteOwnedRecipe, getAdminConfigValue } from './lib/supabase';
 import type { DbChatMessageRow } from './lib/supabase';
-import { bimaChat, isAiUnavailableError, type BimaChatMessage } from './services/bimaClient';
+import { bimaChat, isAiUnavailableError, configureAiRuntime, type BimaChatMessage } from './services/bimaClient';
 import { preflightPrompt, type PreflightResult } from './services/preflight';
 import { PreflightWarningModal } from './components/Modals/PreflightWarningModal';
 
@@ -94,7 +99,6 @@ export default function App() {
   const {
     isGoogleUser,
     displayName,
-    profileName,
     profileBio,
     avatarUrl: googleAvatarUrl,
     signInWithGoogle,
@@ -115,13 +119,16 @@ export default function App() {
     });
   }, [isGoogleUser, ready]); // refetch when auth state or data ready changes
 
-  // Load admin feature flags (main_feature_enabled, images_enabled)
+  // Load admin feature flags (main_feature_enabled, images_enabled) + setelan
+  // AI (ai_model, ai_endpoint_override) dari admin_configs.
   useEffect(() => {
     if (!ready) return;
     const loadAdminConfig = async () => {
-      const [mainFeature, images] = await Promise.all([
+      const [mainFeature, images, aiModel, endpointOverride] = await Promise.all([
         getAdminConfigValue('main_feature_enabled'),
         getAdminConfigValue('images_enabled'),
+        getAdminConfigValue('ai_model'),
+        getAdminConfigValue('ai_endpoint_override'),
       ]);
       // toBool inline: treat truthy-ish as enabled
       const toBool = (v: unknown, fallback: boolean) => {
@@ -134,10 +141,24 @@ export default function App() {
         }
         return fallback;
       };
+      const toStr = (v: unknown): string | null => {
+        if (typeof v === 'string') return v;
+        // jsonb `""` (string kosong) datang sebagai string kosong; angka/objek
+        // tidak masuk akal untuk kolom ini, jadi dianggap tidak diisi.
+        return null;
+      };
       setMainFeatureEnabled(toBool(mainFeature, true));
       const imgOn = toBool(images, true);
       setImagesEnabled(imgOn);
       setImagesEnabledCtx(imgOn);
+
+      // Terapkan setelan AI ke klien. Endpoint override di sini yang membuat
+      // admin bisa memperbaiki proxy /bima-api yang mati TANPA build ulang.
+      configureAiRuntime({
+        endpointOverride: toStr(endpointOverride),
+        model: toStr(aiModel),
+      });
+
       // Simpan untuk hard refresh berikutnya + sinkron atribut di <html>
       // (dipasang inline di index.html sebelum bundle dimuat).
       try {
@@ -175,9 +196,21 @@ export default function App() {
     }
   });
   const [adminSection, setAdminSection] = useState<string>('dashboard');
+  /**
+   * Path rute saat ini sebagai STATE.
+   *
+   * Sebelumnya beberapa tempat membaca URL langsung saat render
+   * (`parseRoute(getCurrentPath())`), dan nilai itu tidak pernah memicu render
+   * ulang sendiri. Akibatnya perpindahan yang hanya mengubah hash — mis. dari
+   * `#/admin` kembali ke `#/home` — tidak terlihat oleh React, sehingga
+   * halaman lama tetap tampil.
+   */
+  const [routePath, setRoutePath] = useState<string>(() =>
+    typeof window !== 'undefined' ? getCurrentPath() : '/home',
+  );
   const [profileList, setProfileList] = useState<'saved' | 'posted' | null>(null);
 
-  const { role: authRole, isAdmin: isAdminUser } = useAuth();
+  const { role: authRole, isAdmin: isAdminUser, profileName } = useAuth();
 
   // Preflight (pre-generation sanity check) state
   const [preflight, setPreflight] = useState<{
@@ -256,14 +289,22 @@ export default function App() {
   // Sync state from URL slug on mount and popstate/hashchange
   useEffect(() => {
     const handleUrlChange = () => {
-      const rawPath = getCurrentPath();
-      const parsed = parseRoute(rawPath);
+        const rawPath = getCurrentPath();
+        const parsed = parseRoute(rawPath);
 
-      // Admin route — set adminSection dari URL, render AdminLayout di JSX
-      if (parsed.routeType === 'admin') {
-        setAdminSection(parsed.slug || 'dashboard');
-        return;
-      }
+        // Simpan path sebagai STATE. Tanpa ini, `isAdminRoute` yang dihitung
+        // langsung dari URL saat render menjadi basi: mengubah hash saja
+        // (mis. dari /#/admin ke /#/home) tidak mengubah state apa pun di route
+        // umum, sehingga React tidak me-render ulang dan halaman admin tetap
+        // tampil. Dengan routePath, setiap perubahan URL selalu memicu render.
+        setRoutePath(rawPath);
+
+        // Admin route — section divalidasi (bagian asing -> 'dashboard') supaya
+        // URL seperti /#/admin/ngawur tidak menghasilkan menu kosong.
+        if (parsed.routeType === 'admin') {
+          setAdminSection(parsed.slug && ADMIN_SECTIONS.includes(parsed.slug as never) ? parsed.slug : 'dashboard');
+          return;
+        }
 
       // Blokir generator (wizard/chat) jika fitur utama dimatikan oleh admin
       if (
@@ -1143,7 +1184,22 @@ export default function App() {
     handleSetWizardStep(1);
   };
 
-  const isAdminRoute = parseRoute(getCurrentPath()).routeType === 'admin';
+  // Rute saat ini diturunkan dari state `routePath`, bukan dibaca ulang dari
+  // URL: dengan begitu setiap navigasi (termasuk yang hanya berubah hash)
+  // selalu me-render ulang, dan nilai yang dipakai JSX tidak bisa basi.
+  const currentRoute = parseRoute(routePath);
+  const isAdminRoute = currentRoute.routeType === 'admin';
+
+  /**
+   * Bagian admin aktif — diambil dari URL, bukan dari state.
+   *
+   * Dulu `active` berasal dari state `adminSection` yang baru di-set di dalam
+   * effect setelah URL berubah, sehingga pada render pertama menu yang
+   * ter-highlight selalu tertinggal satu langkah (buka /#/admin/komentar →
+   * tidak ada menu yang aktif). Membacanya dari URL membuat nilai benar pada
+   * render pertama, setelah hard refresh, dan setelah back/forward.
+   */
+  const adminActive = isAdminRoute ? getAdminSectionFromPath(routePath) : 'dashboard';
 
   /**
    * Workspace generator (chat/wizard) memakai layout "viewport penuh": root
@@ -1159,6 +1215,44 @@ export default function App() {
   const isGenerateWorkspace =
     currentTab === 'generate' && !selectedRecipeDetail && !isAdminRoute;
 
+  /**
+   * PENJAGA ROUTE ADMIN — harus SEBELUM blok konten publik.
+   *
+   * Dulu panel admin hanya ditambahkan di dalam root `<div>` yang sama dengan
+   * konten publik, dan route admin tidak pernah mengubah `currentTab`. Akibatnya
+   * HomePage (dan BottomNavBar) ikut ter-render di dalam halaman admin, jadi
+   * panel admin benar-benar berada di bawah konten publik — "Keluar Admin"
+   * bahkan jatuh di y≈1044 (dua layar ke bawah) sehingga panel praktis tidak
+   * bisa dipakai.
+   *
+   * Sekarang route admin me-return LEBIH DULU, jadi konten publik tidak pernah
+   * ikut ter-render. Penjaga akses sepenuhnya milik `AdminGuard`, termasuk saat
+   * peran masih dimuat.
+   */
+  if (isAdminRoute) {
+    return (
+      // AdminGuard di LUAR AdminLayout: kalau peran bukan admin (atau belum
+      // selesai dimuat), SELURUH kerangka panel — "Admin Panel", daftar menu,
+      // dan tombol "Keluar Admin" — tidak pernah masuk DOM. Sebelumnya guard
+      // ada di dalam, sehingga shell-nya tetap bisa dibaca pengunjung tanpa
+      // login lewat DevTools/HTML.
+      <AdminGuard>
+        <AdminLayout active={adminActive}>
+          {adminSection === 'dashboard' && <AdminDashboard />}
+          {adminSection === 'komentar' && <AdminComments />}
+          {adminSection === 'laporan' && <AdminReports />}
+          {adminSection === 'resep' && <AdminRecipes />}
+          {adminSection === 'pengguna' && <AdminUsers />}
+          {adminSection === 'ulasan' && <AdminReviews />}
+          {adminSection === 'aktivitas' && (
+            <AdminAuditLog currentUserName={profileName || googleDisplayName} />
+          )}
+          {adminSection === 'pengaturan' && <AdminSettings />}
+        </AdminLayout>
+      </AdminGuard>
+    );
+  }
+
   return (
     <div
       className={`bg-[#F9F9F7] text-[#1A1C1B] font-['Manrope',sans-serif] flex flex-col overflow-x-hidden ${
@@ -1166,18 +1260,6 @@ export default function App() {
       }`}
       data-images-disabled={imagesEnabled ? undefined : 'true'}
     >
-      {/* Admin Panel — hanya ditampilkan saat route /admin */}
-      {isAdminRoute && (
-        <AdminLayout active={adminSection}>
-          <AdminGuard>
-            {adminSection === 'dashboard' && <AdminDashboard />}
-            {adminSection === 'komentar' && <AdminComments />}
-            {adminSection === 'laporan' && <AdminReports />}
-            {adminSection === 'resep' && <AdminRecipes />}
-            {adminSection === 'pengaturan' && <AdminSettings />}
-          </AdminGuard>
-        </AdminLayout>
-      )}
       {/* 1. MAIN CONTENT (FULL PAGE RECIPE DETAIL OR TABS) */}
       {selectedRecipeDetail ? (
         <RecipeDetailPage

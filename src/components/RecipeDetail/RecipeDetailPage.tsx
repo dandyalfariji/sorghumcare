@@ -23,9 +23,11 @@ import {
   Copy,
   Check,
   Link as LinkIcon,
-  User
+  User,
+  Flag
 } from 'lucide-react';
 import { CommentSection } from '../Comments/CommentSection';
+import { ReportModal } from '../Modals/ReportModal';
 
 interface RecipeDetailPageProps {
   recipe: Recipe;
@@ -75,6 +77,8 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   // ditekan supaya ada umpan balik nyata walau rata-rata belum berubah.
   const [myRating, setMyRating] = useState<number | null>(null);
   const [commentCount, setCommentCount] = useState(0);
+  // Modal laporkan resep
+  const [reportOpen, setReportOpen] = useState(false);
   const commentsRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -443,6 +447,19 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
               >
                 {copiedLink ? <Check className="w-5 h-5 text-emerald-600" /> : <Share2 className="w-5 h-5" />}
               </button>
+
+              {/* Laporkan resep — sebelumnya tidak ada jalur pelaporan sama sekali,
+                  sehingga halaman Laporan admin selalu kosong. */}
+              <button
+                id="btn-report-recipe"
+                onClick={() => setReportOpen(true)}
+                className="flex items-center gap-1 bg-[#f4f4f2] px-3 py-1.5 rounded-xl border border-[#e2e3e1] text-sm font-semibold text-[#727972] hover:text-[#7c5800] hover:border-[#7c5800]/40 transition-colors cursor-pointer"
+                title="Laporkan resep ini ke admin"
+                aria-label="Laporkan resep ini"
+              >
+                <Flag className="w-4 h-4" />
+                <span>Laporkan</span>
+              </button>
             </div>
           </div>
 
@@ -763,6 +780,15 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
           onCountChange={setCommentCount}
         />
         </div>
+
+        {/* Modal laporkan resep */}
+        <ReportModal
+          open={reportOpen}
+          targetType="recipe"
+          targetId={recipe.id}
+          targetPreview={`"${recipe.title}"${recipe.subtitle ? ` — ${recipe.subtitle}` : ''}`}
+          onClose={() => setReportOpen(false)}
+        />
 
                 </main>
               </div>

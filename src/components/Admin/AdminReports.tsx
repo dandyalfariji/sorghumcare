@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Check, X, Flag, RefreshCw, Loader2, AlertTriangle } from 'lucide-react'
-import { fetchReports, acceptReport, rejectReport } from '../../lib/supabase'
+import { fetchReports, acceptReport, rejectReport, adminLogAction } from '../../lib/supabase'
 import type { Report } from '../../types'
 
 /** Label status dalam bahasa Indonesia. */
@@ -86,20 +86,31 @@ export const AdminReports: React.FC = () => {
 
     setProcessing(true)
     const adminNote = note.trim() ? note.trim() : null
-    const ok =
-      pendingAction.type === 'accept'
-        ? await acceptReport(pendingAction.reportId, adminNote)
-        : await rejectReport(pendingAction.reportId, adminNote)
+    const isAccept = pendingAction.type === 'accept'
+    const ok = isAccept
+      ? await acceptReport(pendingAction.reportId, adminNote)
+      : await rejectReport(pendingAction.reportId, adminNote)
 
     if (!ok) {
       setError(
-        pendingAction.type === 'accept'
+        isAccept
           ? 'Gagal menerima laporan. Silakan coba lagi.'
-          : 'Gagal menolak laporan. Silakan coba lagi.'
+          : 'Gagal menolak laporan. Silakan coba lagi.',
       )
       setProcessing(false)
       return
     }
+
+    // Catat ke jejak aktivitas admin (tidak pernah membatalkan tindakan di atas).
+    const target = reports.find((r) => r.id === pendingAction.reportId)
+    await adminLogAction({
+      action: isAccept ? 'report.accept' : 'report.reject',
+      targetType: 'report',
+      targetId: pendingAction.reportId,
+      detail: target
+        ? `${TARGET_TYPE_LABEL[target.target_type] || target.target_type} — ${target.reason || 'tanpa alasan'}${adminNote ? ` | catatan: ${adminNote}` : ''}`
+        : `catatan: ${adminNote || '-'}`,
+    })
 
     setProcessing(false)
     setPendingAction(null)

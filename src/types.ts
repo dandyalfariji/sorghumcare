@@ -154,3 +154,45 @@ export interface Report {
   reviewed_at: string | null;
   created_at: string;
 }
+
+/**
+ * Baris `profiles` + hitungan aktivitas, dipakai halaman Kelola Pengguna.
+ * `email` hanya tersedia bila migrasi 015 sudah dijalankan (policy admin
+ * membaca profiles); kolom hitungan diisi client dari tabel lain.
+ */
+export interface AdminUserRow {
+  id: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  role: string;
+  bio: string | null;
+  created_at: string;
+  recipe_count?: number;
+  comment_count?: number;
+}
+
+/** Ulasan publik (recipe_reviews) + nama penulis, untuk moderasi admin. */
+export interface AdminReviewRow {
+  id: string;
+  user_id: string;
+  recipe_id: string;
+  rating: number;
+  review_text: string | null;
+  created_at: string;
+  /** Judul resep, diisi client dari tabel recipes. */
+  recipe_title?: string | null;
+  /** Nama penulis dari profiles, diisi client. */
+  author_name?: string | null;
+}
+
+/** Jejak tindakan admin (admin_audit_log). */
+export interface AdminAuditEntry {
+  id: string;
+  actor_id: string | null;
+  actor_name: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  detail: string | null;
+  created_at: string;
+}

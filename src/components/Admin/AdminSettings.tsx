@@ -14,13 +14,16 @@ import {
   ShieldAlert,
   Settings,
   RefreshCw,
+  Link2,
 } from 'lucide-react'
 import {
   fetchAdminConfigs,
   updateAdminConfig,
   getAdminConfigValue,
+  adminLogAction,
   isAdmin as isAdminAccount,
 } from '../../lib/supabase'
+import { getActiveChatPath, configureAiRuntime } from '../../services/bimaClient'
 import { useAuth } from '../../lib/AuthProvider'
 import type { AdminConfig } from '../../types'
 
@@ -29,11 +32,13 @@ const DEFAULT_AI_MODEL = import.meta.env.VITE_BIMA_MODEL || 'default'
 const MAIN_FEATURE_KEY = 'main_feature_enabled'
 const IMAGES_KEY = 'images_enabled'
 const MODEL_KEY = 'ai_model'
+const ENDPOINT_KEY = 'ai_endpoint_override'
 
 const DEDICATED_LABELS: Record<string, string> = {
   [MAIN_FEATURE_KEY]: 'Fitur Utama',
   [IMAGES_KEY]: 'Tampilan Gambar',
   [MODEL_KEY]: 'Model AI',
+  [ENDPOINT_KEY]: 'Endpoint AI',
 }
 
 const formatDate = (value?: string | null): string => {
@@ -192,7 +197,7 @@ const SectionCard: React.FC<SectionCardProps> = ({
 )
 
 export const AdminSettings: React.FC = () => {
-  const { isAdmin: isAdminUser } = useAuth()
+  const { isAdmin: isAdminUser, displayName } = useAuth()
   const [authorized, setAuthorized] = useState<boolean | null>(null)
   const [configs, setConfigs] = useState<AdminConfig[]>([])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -206,6 +211,7 @@ export const AdminSettings: React.FC = () => {
   const [mainFeatureEnabled, setMainFeatureEnabled] = useState(true)
   const [imagesEnabled, setImagesEnabled] = useState(true)
   const [modelValue, setModelValue] = useState(DEFAULT_AI_MODEL)
+  const [endpointValue, setEndpointValue] = useState('')
   const [newKey, setNewKey] = useState('')
   const [newValue, setNewValue] = useState('')
   const [newDescription, setNewDescription] = useState('')
@@ -215,11 +221,12 @@ export const AdminSettings: React.FC = () => {
     else setLoading(true)
     setError(null)
 
-    const [rows, mainFeature, images, model] = await Promise.all([
+    const [rows, mainFeature, images, model, endpoint] = await Promise.all([
       fetchAdminConfigs(),
       getAdminConfigValue(MAIN_FEATURE_KEY),
       getAdminConfigValue(IMAGES_KEY),
       getAdminConfigValue(MODEL_KEY),
+      getAdminConfigValue(ENDPOINT_KEY),
     ])
 
     setConfigs(rows)
@@ -227,6 +234,7 @@ export const AdminSettings: React.FC = () => {
     setMainFeatureEnabled(toBool(mainFeature, true))
     setImagesEnabled(toBool(images, true))
     setModelValue(typeof model === 'string' && model.trim() ? model : DEFAULT_AI_MODEL)
+    setEndpointValue(typeof endpoint === 'string' ? endpoint : '')
 
     setLoading(false)
     setRefreshing(false)
@@ -256,6 +264,7 @@ export const AdminSettings: React.FC = () => {
 
   const canAccess = isAdminUser || authorized === true
   const showLoader = !canAccess && authorized === null
+  const activeEndpoint = getActiveChatPath()
 
   const handleSaveConfig = async (config: AdminConfig) => {
     const draft = drafts[config.config_key] ?? ''
@@ -271,6 +280,14 @@ export const AdminSettings: React.FC = () => {
     setSavingKey(null)
 
     if (success) {
+      // Jejak aktivitas admin (tidak memblokir tindakan utama).
+      await adminLogAction({
+        action: 'config.update',
+        targetType: 'config',
+        targetId: config.config_key,
+        detail: `"${config.config_key}" diubah`, 
+        actorName: displayName,
+      })
       setNotice(`Konfigurasi "${config.config_key}" berhasil disimpan.`)
       loadConfigs(true)
     } else {
@@ -340,18 +357,25 @@ export const AdminSettings: React.FC = () => {
         `Tampilan gambar ${next ? 'diaktifkan' : 'dinonaktifkan'} untuk seluruh pengguna.`
       )
     }
+
+    await adminLogAction({
+      action: 'config.update',
+      targetType: 'config',
+      targetId: key,
+      detail: `${key} = ${next ? 'aktif' : 'nonaktif'}`,
+      actorName: displayName,
+    })
   }
 
   const handleSaveModel = async () => {
     const model = modelValue.trim()
-    if (!model) {
-      setError('Nama model AI tidak boleh kosong.')
-      return
-    }
 
     const existing = configs.find((row) => row.config_key === MODEL_KEY)
     setSavingExtra(MODEL_KEY)
     setError(null)
+    // Kosong = sengaja memakai default backend, bukan galat. Dulu nilai kosong
+    // ditolak ('tidak boleh kosong'), padahal justru itu satu-satunya cara
+    // mengembalikan kendali ke backend.
     const success = await updateAdminConfig(
       MODEL_KEY,
       model,
@@ -360,11 +384,58 @@ export const AdminSettings: React.FC = () => {
     setSavingExtra(null)
 
     if (success) {
-      setNotice('Model AI berhasil disimpan.')
+      await adminLogAction({
+        action: 'config.update',
+        targetType: 'config',
+        targetId: MODEL_KEY,
+        detail: model ? `ai_model = ${model}` : 'ai_model dikosongkan (pakai default backend)',
+        actorName: displayName,
+      })
+      setNotice(model ? 'Model AI berhasil disimpan.' : 'Model AI dikosongkan (memakai default backend).')
       loadConfigs(true)
     } else {
       setError('Gagal menyimpan model AI.')
     }
+  }
+
+  /**
+   * Simpan override endpoint AI. Ini yang membuat perbaikan proxy /bima-api
+   * bisa dilakukan dari panel, TANPA build + deploy ulang.
+   */
+  const handleSaveEndpoint = async () => {
+    const endpoint = endpointValue.trim()
+    if (endpoint && !/^(\/|https?:\/\/)/i.test(endpoint)) {
+      setError('Endpoint harus berupa path (diawali "/") atau URL http(s):// — nilai lain ditolak.')
+      return
+    }
+
+    const existing = configs.find((row) => row.config_key === ENDPOINT_KEY)
+    setSavingExtra(ENDPOINT_KEY)
+    setError(null)
+    const success = await updateAdminConfig(
+      ENDPOINT_KEY,
+      endpoint,
+      existing?.description ?? 'Override endpoint chat AI (kosong = /bima-api/chat)'
+    )
+    setSavingExtra(null)
+
+    if (!success) {
+      setError('Gagal menyimpan endpoint AI. Periksa izin admin Anda.')
+      return
+    }
+
+    await adminLogAction({
+      action: 'config.update',
+      targetType: 'config',
+      targetId: ENDPOINT_KEY,
+      detail: endpoint ? `ai_endpoint_override = ${endpoint}` : 'ai_endpoint_override dikosongkan',
+      actorName: displayName,
+    })
+
+    // Terapkan langsung ke klien supaya tidak perlu reload.
+    configureAiRuntime({ endpointOverride: endpoint })
+    setNotice(endpoint ? 'Endpoint AI disimpan & langsung dipakai.' : 'Endpoint AI kembali ke default.')
+    loadConfigs(true)
   }
 
   if (showLoader) {
@@ -391,7 +462,7 @@ export const AdminSettings: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#f9f9f7] text-[#1a1c1b] font-['Manrope',sans-serif] antialiased pb-12">
+    <div className="pb-12">
       {/* Toast notifikasi */}
       {notice && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-[#163422] text-white px-5 py-2.5 rounded-full shadow-lg text-xs font-semibold flex items-center gap-2 animate-bounce">
@@ -400,8 +471,10 @@ export const AdminSettings: React.FC = () => {
         </div>
       )}
 
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-[#f9f9f7]/95 backdrop-blur-md border-b border-[#e2e3e1]/70 px-5 py-3 flex items-center gap-3">
+      {/* Header — tidak sticky & tanpa padding halaman lagi: kerangka halaman
+          sudah disediakan AdminLayout (dulu halaman ini membawa header
+          sendiri berikut `min-h-screen`, sehingga header tampil dua kali). */}
+      <div className="flex items-center gap-3 mb-4">
         <div className="w-9 h-9 rounded-xl bg-[#163422] text-white flex items-center justify-center shrink-0">
           <SlidersHorizontal className="w-4 h-4" />
         </div>
@@ -423,9 +496,9 @@ export const AdminSettings: React.FC = () => {
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
         </button>
-      </header>
+      </div>
 
-      <main className="px-5 md:px-10 max-w-4xl mx-auto pt-5 space-y-4">
+      <div className="space-y-4">
         {/* Pesan error */}
         {error && (
           <div className="bg-[#ffdad6] text-[#ba1a1a] rounded-2xl border border-[#ba1a1a]/20 px-4 py-3 text-xs font-semibold flex items-start gap-2">
@@ -646,9 +719,60 @@ export const AdminSettings: React.FC = () => {
                 </div>
               </div>
             </SectionCard>
+
+            {/* BAGIAN E — Endpoint AI (jalur darurat tanpa build ulang) */}
+            <SectionCard
+              icon={<Link2 className="w-4 h-4" />}
+              title="E. Endpoint AI"
+              description="Jalur darurat bila proxy /bima-api mati di host produksi — berlaku tanpa build ulang."
+            >
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-[#424843] flex items-center gap-1.5">
+                  <Link2 className="w-3.5 h-3.5" />
+                  Endpoint AI (override)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={endpointValue}
+                    onChange={(e) => setEndpointValue(e.target.value)}
+                    placeholder="/bima-api/chat (default)"
+                    spellCheck={false}
+                    className="flex-1 px-3 py-2 border border-[#c2c8c0] rounded-xl text-xs font-mono bg-white focus:outline-none focus:border-[#163422] placeholder:text-[#a8a8a3]"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveEndpoint}
+                    disabled={savingExtra === ENDPOINT_KEY}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#163422] text-white text-xs font-bold hover:bg-[#2d4b37] transition-colors cursor-pointer disabled:opacity-60 shrink-0"
+                  >
+                    {savingExtra === ENDPOINT_KEY ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Save className="w-3.5 h-3.5" />
+                    )}
+                    Simpan
+                  </button>
+                </div>
+                <div className="bg-[#f4f4f2] rounded-xl px-3 py-2 text-[11px] text-[#424843] space-y-1">
+                  <p>
+                    Endpoint aktif sekarang:{' '}
+                    <span className="font-mono font-bold text-[#163422]">{activeEndpoint}</span>
+                  </p>
+                  <p className="text-[#727972]">
+                    Kosongkan untuk memakai default. Isi URL penuh backend (mis.{' '}
+                    <span className="font-mono">https://api.llmsorgum.online/api/chat</span>) kalau
+                    situs di-deploy sebagai berkas statis sehingga proxy <span className="font-mono">/bima-api</span>{' '}
+                    tidak punya proses Node di baliknya (nginx menjawab 405). Hanya skema{' '}
+                    <span className="font-mono">/path</span> atau <span className="font-mono">http(s)://</span>{' '}
+                    yang diterima; nilai lain diabaikan demi keamanan.
+                  </p>
+                </div>
+              </div>
+            </SectionCard>
           </>
         )}
-      </main>
+      </div>
     </div>
   )
 }
