@@ -36,6 +36,18 @@ interface RecipeCardViewProps {
   isPublishing?: boolean;
   /** Ingredient names the user selected in the wizard — to show unused ones */
   inputIngredientNames?: string[];
+  /**
+   * Apakah pengguna boleh menyimpan resep ini.
+   *
+   * Guest (sesi anonim) TIDAK boleh menyimpan: data `saved_recipes` terikat
+   * pada sesi anonim yang hidup di localStorage browser, sehingga resep yang
+   * "tersimpan" hilang begitu pengguna membersihkan browser atau berganti
+   * perangkat — tanpa peringatan apa pun. Karena itu penyimpanan hanya untuk
+   * akun yang benar-benar login (Google), dan tombolnya menjelaskan sebabnya.
+   */
+  canSave?: boolean;
+  /** Buka halaman Profil (tempat tombol Masuk dengan Google) saat guest menekan Simpan. */
+  onRequireLogin?: () => void;
 }
 
 export const RecipeCardView: React.FC<RecipeCardViewProps> = ({
@@ -49,6 +61,8 @@ export const RecipeCardView: React.FC<RecipeCardViewProps> = ({
   onPublish,
   isPublishing = false,
   inputIngredientNames = [],
+  canSave = true,
+  onRequireLogin,
 }) => {
   const { imagesEnabled } = useData();
   const [portionMultiplier, setPortionMultiplier] = useState<number>(1);
@@ -78,6 +92,13 @@ export const RecipeCardView: React.FC<RecipeCardViewProps> = ({
   };
 
   const handleSaveClick = () => {
+    // Guest tidak boleh menyimpan. Sebelumnya tombol ini langsung menulis ke
+    // `saved_recipes` lewat sesi anonim, sehingga resep yang "tersimpan" ikut
+    // hilang saat localStorage dibersihkan / ganti perangkat.
+    if (!canSave) {
+      if (onRequireLogin) onRequireLogin();
+      return;
+    }
     onToggleSave(recipe);
     if (!isSaved) {
       confetti({
@@ -360,16 +381,24 @@ export const RecipeCardView: React.FC<RecipeCardViewProps> = ({
 
       {/* Interactive Action Toolbar */}
       <div className="pt-2 flex flex-wrap items-center gap-2">
-        {/* Save button */}
+        {/* Save button — guest diarahkan login, bukan diberi tombol yang gagal diam-diam */}
         <button
           onClick={handleSaveClick}
+          title={canSave ? undefined : 'Masuk dengan Google untuk menyimpan resep'}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs ${
-            isSaved
+            !canSave
+              ? 'bg-[#f4f4f2] border border-dashed border-[#c2c8c0] text-[#727972] hover:border-[#163422] hover:text-[#163422] cursor-pointer'
+              : isSaved
               ? 'bg-[#163422] text-white hover:bg-[#2d4b37]'
               : 'bg-white border border-[#c2c8c0] text-[#163422] hover:bg-[#f4f4f2]'
           }`}
         >
-          {isSaved ? (
+          {!canSave ? (
+            <>
+              <Bookmark className="w-4 h-4" />
+              <span>Masuk untuk menyimpan</span>
+            </>
+          ) : isSaved ? (
             <>
               <BookmarkCheck className="w-4 h-4 text-[#fdc65c]" />
               <span>Tersimpan di My Recipes</span>

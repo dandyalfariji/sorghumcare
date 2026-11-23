@@ -164,6 +164,13 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   };
 
   const handleFavoriteClick = () => {
+    // Guest tidak boleh menyimpan ke koleksi pribadi — `saved_recipes` terikat
+    // pada sesi anonim di localStorage, jadi simpanan itu hilang saat browser
+    // dibersihkan / ganti perangkat. Arahkan ke halaman Profil untuk login.
+    if (!isGoogleUser) {
+      onOpenProfile();
+      return;
+    }
     // Save = koleksi pribadi. Optimistis, selaraskan via prop isSaved dari DB.
     const next = !favoriteState;
     setFavoriteState(next);
@@ -364,15 +371,24 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
                     ? 'bg-[#163422] text-[#fdc65c] border-[#163422]'
                     : 'bg-[#f4f4f2] text-[#424843] border-[#e2e3e1] hover:border-[#163422]/40'
                 }`}
-                title={favoriteState ? 'Hapus dari koleksi' : 'Simpan ke koleksi'}
-                aria-label="Simpan ke koleksi"
+                title={
+                  !isGoogleUser
+                    ? 'Masuk dengan Google untuk menyimpan resep'
+                    : favoriteState
+                    ? 'Hapus dari koleksi'
+                    : 'Simpan ke koleksi'
+                }
+                aria-label={isGoogleUser ? 'Simpan ke koleksi' : 'Masuk untuk menyimpan resep'}
               >
                 <Bookmark
                   className="w-4 h-4"
                   fill={favoriteState ? '#fdc65c' : 'none'}
                 />
-                <span>{favoriteState ? 'Tersimpan' : 'Simpan'}</span>
+                <span>
+                  {!isGoogleUser ? 'Masuk untuk simpan' : favoriteState ? 'Tersimpan' : 'Simpan'}
+                </span>
               </button>
+
               {/* Tombol suka (apresiasi publik) */}
               <button
                 onClick={handleLikeClick}

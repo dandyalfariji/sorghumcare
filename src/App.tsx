@@ -1020,6 +1020,14 @@ export default function App() {
   };
 
   const handleToggleSaveRecipe = (recipe: Recipe) => {
+    // Pertahanan berlapis: meskipun tombol sudah di-gate di RecipeCardView,
+    // handler ini juga menolak guest. Sesi anonim hidup di localStorage, jadi
+    // resep yang tersimpan lewat sesi itu akan hilang tanpa peringatan saat
+    // browser dibersihkan atau pengguna berganti perangkat.
+    if (!isGoogleUser) {
+      handleSelectTab('profile');
+      return;
+    }
     // Persist toggle to Supabase (insert/delete saved_recipes), then refetch
     toggleSave(recipe).then(() => {
       refetchSaved();
@@ -1654,6 +1662,11 @@ export default function App() {
                                       onPublish={handlePublishRecipe}
                                       isPublishing={publishingIds.has(msg.recipe.id) || publishingIds.has(msg.recipe.slug || '')}
                                       inputIngredientNames={[...wizardData.selectedIngredientIds, ...wizardData.customIngredients]}
+                                      canSave={isGoogleUser}
+                                      onRequireLogin={() => {
+                                        setSelectedRecipeDetail(null);
+                                        handleSelectTab('profile');
+                                      }}
                                     />
                                     <span className="text-[10px] text-[#727972] mt-2 px-1">
                                       {msg.timestamp}
