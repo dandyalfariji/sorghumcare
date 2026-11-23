@@ -31,12 +31,15 @@
 const BUILD_CHAT_PATH = '/bima-api/chat';
 
 /**
- * Consumer API key untuk backend (bima_...). Dibaca dari env ber-prefix VITE_
- * hanya sebagai jalur darurat — lihat peringatan di `.env.example`: nilai
- * ber-prefix VITE_ ikut ter-bundle ke JavaScript browser dan bisa dibaca publik.
+ * TIDAK ADA kunci API di sisi klien — dan itu disengaja.
+ *
+ * Kunci consumer (bima_...) disuntikkan oleh proxy server (`vite.config.ts` saat
+ * dev, `server.mjs` saat produksi) lewat header `X-Api-Key`. Dulu ada jalur
+ * darurat `import.meta.env.VITE_BIMA_API_KEY` di sini; jalur itu DIHAPUS karena
+ * berbahaya: semua variabel ber-prefix `VITE_` di-inline ke JavaScript browser
+ * saat build, sehingga siapa pun bisa membuka DevTools dan mengambil kuncinya.
+ * Kunci hanya boleh hidup di environment server.
  */
-const BIMA_API_KEY = import.meta.env.VITE_BIMA_API_KEY || '';
-
 const RUNTIME: { endpointOverride?: string; model?: string } = {};
 
 /**
@@ -232,9 +235,9 @@ export async function bimaChat(
     const model = (opts.model ?? RUNTIME.model ?? '').trim();
     if (model) headers['X-Model'] = model;
 
-    // We intentionally do NOT send X-Server-Url or X-LLM-API-Key from the frontend.
-    // The X-Api-Key header below is strictly for Consumer API Keys (bima_...), not LLM provider keys.
-    if (BIMA_API_KEY) headers['X-Api-Key'] = BIMA_API_KEY;
+    // We intentionally do NOT send X-Server-Url, X-LLM-API-Key, or X-Api-Key from
+    // the frontend. The consumer key (bima_...) is injected server-side by the proxy
+    // (vite.config.ts in dev, server.mjs in production) — see the comment above RUNTIME.
       const payload: Record<string, unknown> = { message };
   if (history && history.length) payload.history = history;
 

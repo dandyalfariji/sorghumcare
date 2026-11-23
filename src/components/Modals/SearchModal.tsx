@@ -173,6 +173,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                       src={rec.imageUrl}
                       alt={rec.title}
                       referrerPolicy="no-referrer"
+                      loading="lazy"
                       className="w-full h-full object-cover"
                     />
                   </div>

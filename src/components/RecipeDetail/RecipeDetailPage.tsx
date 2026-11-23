@@ -246,6 +246,7 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
                 className="w-full h-full object-cover"
                 src={googleAvatarUrl}
                 referrerPolicy="no-referrer"
+              loading="lazy"
               />
             ) : (
               <User className="w-5 h-5 text-[#727972]" />
@@ -294,6 +295,8 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
               className="w-full h-full object-cover"
               src={recipeImageUrl}
               referrerPolicy="no-referrer"
+              loading="eager"
+              fetchPriority="high"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = GLOBAL_FALLBACK_FOOD_IMAGE;
               }}
@@ -333,9 +336,9 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
           </div>
           )}
 
-          <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4 pt-1">
-            <div className="max-w-2xl">
-              <h1 className="text-2xl md:text-3xl lg:text-[32px] font-bold text-[#1a1c1b] leading-tight">
+          <div className="flex flex-col gap-3 pt-1">
+            <div className="max-w-3xl">
+              <h1 className="text-2xl md:text-3xl lg:text-[32px] font-bold text-[#1a1c1b] leading-tight break-words">
                 {recipe.title}
               </h1>
               <p className="text-sm md:text-base text-[#424843] mt-1.5 leading-relaxed">
@@ -343,7 +346,7 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
               </p>
             </div>
 
-            <div className="flex items-center gap-3 text-[#424843] text-sm font-semibold flex-shrink-0">
+            <div className="flex flex-wrap items-center gap-2 md:gap-3 text-[#424843] text-sm font-semibold">
               <div className="flex items-center gap-1 bg-[#f4f4f2] px-3 py-1.5 rounded-xl border border-[#e2e3e1]">
                 <span className="material-symbols-outlined text-base text-[#163422]">schedule</span>
                 <span>{recipe.prepTimeMinutes + recipe.cookTimeMinutes} min</span>
@@ -683,6 +686,7 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
                             onError={(e) => {
                               (e.target as HTMLImageElement).src = GLOBAL_FALLBACK_FOOD_IMAGE;
                             }}
+                          loading="lazy"
                           />
                         </div>
                         )}

@@ -1666,7 +1666,10 @@ export default function App() {
                               if (msg.sender === 'ai' && msg.text) {
                                 return (
                                   <div key={msg.id} className="flex flex-col w-full">
-                                    <div className="bg-[#f4f4f2] text-[#1A1C1B] p-4 rounded-2xl shadow-sm border border-[#e2e3e1]">
+                                    {/* data-no-i18n: isi balasan AI tidak boleh ikut
+                                        diterjemahkan (bisa berisi istilah Indonesia
+                                        yang justru harus dipertahankan). */}
+                                    <div data-no-i18n className="bg-[#f4f4f2] text-[#1A1C1B] p-4 rounded-2xl shadow-sm border border-[#e2e3e1]">
                                       {msg.isTypingStep ? (
                                         msg.text ? (
                                           // Continuing state: show existing text + skeleton animation
@@ -1742,6 +1745,7 @@ export default function App() {
                         onSendMessage={handleSendMessage}
                         isLoading={isGenerating}
                         dynamicPrompts={dynamicPrompts}
+                        showSuggestions={chatMessages.length === 0}
                       />
                     </div>
                   </div>

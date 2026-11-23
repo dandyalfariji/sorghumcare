@@ -34,17 +34,43 @@ export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKe
   auth: { persistSession: true, autoRefreshToken: true },
 });
 
-/** Ensure an anonymous session exists (idempotent). Returns user id or null. */
+/**
+ * Ensure an anonymous session exists (idempotent). Returns user id or null.
+ *
+ * PENTING — kenapa ada `inflight`:
+ * React.StrictMode memanggil `useEffect` dua kali di dev, dan lebih dari satu
+ * komponen bisa meminta sesi pada saat yang sama. Tanpa guard, dua panggilan
+ * `signInAnonymously()` yang berjalan bersamaan bisa menghasilkan DUA sesi
+ * anonim berbeda — data pengguna (resep tersimpan, komentar, riwayat chat)
+ * lalu terbelah di antara keduanya dan sebagian tampak "hilang".
+ * Dengan menyimpan Promise yang sedang berjalan, pemanggil berikutnya
+ * menunggu hasil yang sama, bukan memulai sesi baru.
+ */
+let sessionInFlight: Promise<string | null> | null = null;
+
 export async function ensureAnonymousSession(): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
   if (session?.user) return session.user.id;
 
-  const { data: { session: anon }, error } = await supabase.auth.signInAnonymously();
-  if (error) {
-    console.error('Anonymous sign-in failed:', error.message);
-    return null;
-  }
-  return anon?.user?.id ?? null;
+  // Sudah ada satu permintaan berjalan -> pakai hasilnya, jangan mulai yang baru.
+  if (sessionInFlight) return sessionInFlight;
+
+  sessionInFlight = (async () => {
+    try {
+      const { data: { session: anon }, error } = await supabase.auth.signInAnonymously();
+      if (error) {
+        console.error('Anonymous sign-in failed:', error.message);
+        return null;
+      }
+      return anon?.user?.id ?? null;
+    } finally {
+      // Dilepas setelah selesai (berhasil ATAU gagal) supaya percobaan
+      // berikutnya bisa mencoba lagi, bukan menunggu Promise yang sudah mati.
+      sessionInFlight = null;
+    }
+  })();
+
+  return sessionInFlight;
 }
 
 /** Current user id (sync read of the in-memory session) — use getUserIdAsync instead */

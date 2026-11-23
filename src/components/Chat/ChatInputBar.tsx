@@ -5,12 +5,23 @@ interface ChatInputBarProps {
   onSendMessage: (text: string) => void;
   isLoading?: boolean;
   dynamicPrompts?: string[];
+  /**
+   * Tampilkan baris chip "Inspirasi" (saran prompt).
+   *
+   * Hanya relevan saat percakapan masih kosong: setelah pengguna mengirim
+   * prompt pertamanya, chip saran itu ikut "menempel" di atas kolom input dan
+   * terlihat seperti bagian dari jawaban — teksnya jadi dobel dengan saran
+   * lanjutan yang sudah ditulis AI di dalam balasannya. Karena itu baris ini
+   * disembunyikan begitu ada pesan.
+   */
+  showSuggestions?: boolean;
 }
 
 export const ChatInputBar: React.FC<ChatInputBarProps> = ({
   onSendMessage,
   isLoading = false,
   dynamicPrompts,
+  showSuggestions = true,
 }) => {
   const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -74,7 +85,9 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
   return (
     <div className="w-full bg-gradient-to-t from-[#F9F9F7] via-[#F9F9F7]/95 to-transparent pt-1.5 pb-2 sm:pt-2 sm:pb-2.5 px-3 sm:px-6">
       <div className="max-w-2xl mx-auto space-y-1.5">
-        {/* Quick prompt recommendations */}
+        {/* Quick prompt recommendations — hanya saat percakapan masih kosong
+            (lihat catatan `showSuggestions` di atas). */}
+        {showSuggestions && (
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar text-xs">
                   <span className="flex items-center gap-1 text-[11px] font-bold text-[#7c5800] bg-[#fdc65c]/25 px-2 py-0.5 rounded-full flex-shrink-0">
                     <Sparkles className="w-3 h-3 text-[#7c5800]" />
@@ -99,6 +112,7 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
                                       ))
                                     )}
                 </div>
+        )}
 
         {/* Conversational Input Area container */}
         <form

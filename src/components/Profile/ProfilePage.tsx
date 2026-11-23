@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Recipe, SavedRecipe } from '../../types';
 import { RecipeInfoCard } from './RecipeInfoCard';
+import { useLanguage } from '../../i18n/LanguageProvider';
 
 interface ProfilePageProps {
   onOpenSearch: () => void;
@@ -73,23 +74,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   // Bahasa utama aplikasi = Bahasa Indonesia. Penyimpanan eksplisit 'English'
   // dihormati sebagai pilihan pengguna; selain itu (belum pernah memilih /
   // penyimpanan tidak tersedia) jatuh ke Bahasa Indonesia, BUKAN English.
-  const [appLanguage, setAppLanguage] = useState<'English' | 'Bahasa Indonesia'>(() => {
-    try {
-      const saved = localStorage.getItem('bima_app_language');
-      return saved === 'English' ? 'English' : 'Bahasa Indonesia';
-    } catch {
-      return 'Bahasa Indonesia';
-    }
-  });
-  // Sinkronkan atribut <html lang> dengan pilihan tersimpan saat halaman dimuat.
-  // Sebelumnya atribut hanya diubah di dalam applyAppLanguage(), sehingga
-  // setelah muat ulang <html lang> selalu kembali "id" apa pun pilihan yang
-  // tersimpan. Cukup dijalankan sekali saat komponen dipasang; perubahan
-  // berikutnya ditangani applyAppLanguage().
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    document.documentElement.setAttribute('lang', appLanguage === 'English' ? 'en' : 'id');
-  }, []);
+  //
+  // Sejak perbaikan "fitur bahasa tidak berjalan", pilihan ini TIDAK lagi
+  // disimpan di komponen — ia dibaca dan ditulis lewat LanguageProvider, yang
+  // juga menerjemahkan seluruh teks di halaman dan menyinkronkan <html lang>.
+  const { language: appLanguage, setLanguage: setAppLanguage } = useLanguage();
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showToast, setShowToast] = useState<string | null>(null);
@@ -160,23 +149,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   /**
    * Terapkan pilihan bahasa aplikasi.
    *
-   * Sebelumnya tombol bahasa hanya mengubah state lokal + memunculkan toast,
-   * tanpa efek apa pun dan tanpa tersimpan — jadi pilihannya hilang saat reload
-   * (dan judul di kartu profil ikut kembali ke 'English'). Sekarang pilihan
-   * disimpan ke localStorage dan atribut `<html lang>` diperbarui supaya
-   * pemilihan bahasa benar-benar berlaku untuk dokumen.
+   * Penyimpanan, atribut `<html lang>`, dan penerjemahan seluruh teks kini
+   * ditangani LanguageProvider (`setAppLanguage`) — satu sumber kebenaran.
+   * Komponen ini cukup menampilkan konfirmasi ke pengguna.
    */
   const applyAppLanguage = (lang: 'English' | 'Bahasa Indonesia') => {
     setAppLanguage(lang);
-    const code = lang === 'Bahasa Indonesia' ? 'id' : 'en';
-    try {
-      localStorage.setItem('bima_app_language', lang);
-    } catch {
-      /* abaikan (mode privat) */
-    }
-    if (typeof document !== 'undefined') {
-      document.documentElement.setAttribute('lang', code);
-    }
     triggerToast(lang === 'Bahasa Indonesia' ? 'Bahasa diubah ke Bahasa Indonesia' : 'Language switched to English');
   };
 
@@ -327,6 +305,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 className="w-full h-full object-cover"
                 src={googleAvatarUrl}
                 referrerPolicy="no-referrer"
+              loading="lazy"
               />
             ) : (
               <User className="w-5 h-5 text-[#727972]" />
@@ -355,6 +334,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   className="w-full h-full object-cover"
                   src={googleAvatarUrl}
                   referrerPolicy="no-referrer"
+                loading="lazy"
                 />
               ) : (
                 <User className="w-12 h-12 text-[#727972]" />

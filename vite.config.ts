@@ -40,5 +40,31 @@ export default defineConfig(({mode}) => {
     preview: {
       allowedHosts: true as any,
     },
+    build: {
+      // Bundle sebelumnya satu chunk 1.106 kB (309 kB gzip) — Vite sendiri
+      // memperingatkan batas 500 kB. Library besar dipisah ke chunk sendiri
+      // supaya unduhan awal lebih kecil dan cache bertahan saat kode app berubah.
+      //
+      // Catatan: `src/lib/supabase.ts` di-import dinamis di beberapa tempat TAPI
+      // juga statis di belasan file, sehingga Rollup tidak bisa memindahkannya ke
+      // chunk terpisah ("dynamic import will not move module into another chunk").
+      // Karena itu Supabase dipisah lewat manualChunks berdasarkan nama modul,
+      // bukan mengandalkan dynamic import.
+      rollupOptions: {
+        output: {
+          manualChunks(id: string) {
+            if (id.includes('node_modules')) {
+              if (id.includes('@supabase') || id.includes('postgrest')) return 'vendor-supabase';
+              if (id.includes('motion') || id.includes('framer')) return 'vendor-motion';
+              if (id.includes('lucide-react')) return 'vendor-icons';
+              if (id.includes('react-dom') || id.includes('/react/')) return 'vendor-react';
+              return 'vendor';
+            }
+            return undefined;
+          },
+        },
+      },
+      chunkSizeWarningLimit: 700,
+    },
   };
 });

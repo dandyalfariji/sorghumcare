@@ -58,6 +58,7 @@ export const VideoTutorialModal: React.FC<VideoTutorialModalProps> = ({
             src={tutorial.imageUrl}
             alt={tutorial.title}
             referrerPolicy="no-referrer"
+            loading="lazy"
             onError={(e) => {
               (e.target as HTMLImageElement).src = FALLBACK_FOOD_IMAGE;
             }}

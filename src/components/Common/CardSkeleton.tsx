@@ -7,6 +7,16 @@ interface CardImageWithSkeletonProps {
   fallbackSrc: string;
   containerClassName?: string;
   imageClassName?: string;
+  /**
+   * Native lazy-loading untuk gambar. Default `lazy` karena hampir semua
+   * pemakaian komponen ini ada di dalam grid/carousel katalog yang berada di
+   * bawah lipatan — dulu SEMUA gambar (37+ URL Unsplash berukuran w=800)
+   * diunduh di awal halaman, memboroskan kuota pengguna mobile.
+   * Set `eager` hanya untuk gambar hero/utama yang terlihat tanpa scroll.
+   */
+  loading?: 'lazy' | 'eager';
+  /** Hint prioritas fetch; pasangkan `high` hanya dengan `loading="eager"`. */
+  fetchPriority?: 'high' | 'low' | 'auto';
 }
 
 /**
@@ -19,6 +29,8 @@ export const CardImageWithSkeleton: React.FC<CardImageWithSkeletonProps> = ({
   fallbackSrc,
   containerClassName = 'relative w-full h-full overflow-hidden bg-[#e8eae6]',
   imageClassName = 'w-full h-full object-cover',
+  loading = 'lazy',
+  fetchPriority = 'auto',
 }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -47,6 +59,8 @@ export const CardImageWithSkeleton: React.FC<CardImageWithSkeletonProps> = ({
         src={hasError ? fallbackSrc : src || fallbackSrc}
         alt={alt}
         referrerPolicy="no-referrer"
+        loading={loading}
+        fetchPriority={fetchPriority}
         onLoad={() => setIsLoaded(true)}
         onError={() => {
           setHasError(true);

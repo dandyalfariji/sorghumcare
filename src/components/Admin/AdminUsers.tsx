@@ -232,6 +232,7 @@ export const AdminUsers: React.FC = () => {
                             alt=""
                             referrerPolicy="no-referrer"
                             className="w-7 h-7 rounded-full bg-[#e8eae6] shrink-0"
+                          loading="lazy"
                           />
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-[#163422] truncate">

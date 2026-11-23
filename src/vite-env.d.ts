@@ -5,7 +5,6 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_ANON_KEY?: string;
   readonly VITE_BIMA_API_URL?: string;
   readonly VITE_BIMA_MODEL?: string;
-  readonly VITE_BIMA_API_KEY?: string;
   readonly DEV?: boolean;
   readonly PROD?: boolean;
   readonly MODE?: string;

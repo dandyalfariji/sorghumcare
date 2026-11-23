@@ -90,6 +90,7 @@ const CommentItem: React.FC<{
           alt={node.display_name}
           className="w-8 h-8 rounded-full flex-shrink-0 bg-[#e8eae6] border border-[#c2c8c0]/40"
           referrerPolicy="no-referrer"
+          loading="lazy"
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -411,6 +412,7 @@ export const CommentSection: React.FC<CommentSectionProps> = ({
               alt="You"
               className="w-8 h-8 rounded-full flex-shrink-0 bg-[#e8eae6] border border-[#c2c8c0]/40"
               referrerPolicy="no-referrer"
+              loading="lazy"
             />
             <div className="flex-1 relative">
               <input

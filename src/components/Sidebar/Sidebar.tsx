@@ -193,6 +193,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     alt={saved.recipe.title}
                     src={saved.recipe.imageUrl || GLOBAL_FALLBACK_FOOD_IMAGE}
                     referrerPolicy="no-referrer"
+                    loading="lazy"
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = GLOBAL_FALLBACK_FOOD_IMAGE;
                     }}
@@ -235,6 +236,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   alt={googleDisplayName || 'User'}
                   src={googleAvatarUrl}
                   referrerPolicy="no-referrer"
+                  loading="lazy"
                   className="w-full h-full object-cover"
                 />
               ) : (

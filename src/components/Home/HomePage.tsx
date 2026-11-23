@@ -294,6 +294,7 @@ export const HomePage: React.FC<HomePageProps> = ({
               onError={(e) => {
                 (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80';
               }}
+            loading="lazy"
             />
           </div>
           <div className="hidden sm:block">
