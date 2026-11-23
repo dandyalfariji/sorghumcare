@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Check, Play, Pause, Trash2, Send, Sparkles, AlertCircle, RotateCcw } from 'lucide-react';
+import { MicOff, Check, Play, Pause, Send, Sparkles, AlertCircle, RotateCcw } from 'lucide-react';
 
 interface ChatInputBarProps {
   onSendMessage: (text: string) => void;
