@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Mic, MicOff, Send, Sparkles } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Mic, MicOff, Send, Sparkles, AlertCircle } from 'lucide-react';
 
 interface ChatInputBarProps {
   onSendMessage: (text: string) => void;
@@ -25,6 +25,10 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
 }) => {
   const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
+  /** Pesan kegagalan voice input yang ditampilkan ke pengguna (null = tidak ada). */
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  /** Instance SpeechRecognition aktif, supaya tombol bisa benar-benar menghentikannya. */
+  const recognitionRef = useRef<any>(null);
 
   const fallbackPrompts = [
     'Apa itu sorgum?',
@@ -42,23 +46,74 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
     setInputText('');
   };
 
+  /**
+   * Terjemahkan kode error SpeechRecognition menjadi kalimat yang bisa
+   * ditindaklanjuti pengguna.
+   *
+   * Sebelumnya `onerror` hanya melakukan setIsListening(false) tanpa pesan
+   * apa pun, sehingga tombol mic tampak "tidak berfungsi" tanpa penjelasan.
+   * Padahal penyebabnya bisa sangat berbeda dan hanya sebagian bisa diperbaiki
+   * dari sisi aplikasi:
+   *   - not-allowed / service-not-allowed: izin mikrofon ditolak, ATAU browser
+   *     memang tidak menyediakan layanan pengenalan suara (Brave memblokir
+   *     Web Speech API karena butuh kunci Google Speech berbayar).
+   *   - audio-capture: tidak ada mikrofon terpasang / dipakai proses lain.
+   *   - network: layanan pengenalan suara tidak terjangkau.
+   *   - no-speech: tidak ada suara terdeteksi.
+   *   - aborted: pengguna menghentikan sendiri (bukan error, jangan dilaporkan).
+   */
+  const describeVoiceError = (code: string): string | null => {
+    switch (code) {
+      case 'not-allowed':
+      case 'service-not-allowed':
+        return 'Mikrofon tidak bisa diakses. Izinkan akses mikrofon untuk situs ini di pengaturan browser Anda. Catatan: browser Brave tidak mendukung fitur pengenalan suara ini — gunakan Chrome, Edge, atau Safari.';
+      case 'audio-capture':
+        return 'Mikrofon tidak terdeteksi. Pastikan mikrofon terpasang dan tidak sedang dipakai aplikasi lain.';
+      case 'network':
+        return 'Layanan pengenalan suara tidak terjangkau. Periksa koneksi internet Anda, lalu coba lagi.';
+      case 'no-speech':
+        return 'Tidak ada suara yang terdeteksi. Silakan coba lagi dan bicara lebih dekat ke mikrofon.';
+      case 'aborted':
+        return null;
+      default:
+        return `Input suara gagal (${code}). Anda masih bisa mengetik pertanyaan secara langsung.`;
+    }
+  };
+
+  /** Hentikan sesi pengenalan yang sedang berjalan. */
+  const stopListening = () => {
+    const rec = recognitionRef.current;
+    recognitionRef.current = null;
+    if (rec) {
+      try {
+        rec.stop();
+      } catch {
+        /* sudah berhenti — abaikan */
+      }
+    }
+    setIsListening(false);
+  };
+
   const handleVoiceToggle = () => {
-    // Check SpeechRecognition support in browser
+    setVoiceError(null);
+
+    // Sudah mendengarkan -> hentikan.
+    if (isListening) {
+      stopListening();
+      return;
+    }
+
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      // If not supported in browser environment, simulate voice input nicely
-      setIsListening(true);
-      setTimeout(() => {
-        setInputText('Berikan saya resep camilan sorgum renyah untuk santai sore');
-        setIsListening(false);
-      }, 1800);
-      return;
-    }
-
-    if (isListening) {
-      setIsListening(false);
+      // Tidak ada API sama sekali. DULU di sini ada "simulasi" yang mengisi
+      // kolom dengan teks contoh palsu setelah 1,8 detik — pengguna mengira
+      // suaranya dikenali padahal tidak ada mikrofon yang dibuka. Itu
+      // menyesatkan, jadi sekarang kita beri tahu apa adanya.
+      setVoiceError(
+        'Browser Anda tidak mendukung input suara. Gunakan Chrome, Edge, atau Safari — atau ketik pertanyaan langsung.'
+      );
       return;
     }
 
@@ -67,18 +122,44 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
       recognition.lang = 'id-ID';
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
+      // Satu ucapan saja per klik; tanpa ini sebagian browser terus
+      // mendengarkan dan tombol tampak "macet" di status listening.
+      recognition.continuous = false;
 
-      recognition.onstart = () => setIsListening(true);
+      recognition.onstart = () => {
+        setIsListening(true);
+        setVoiceError(null);
+      };
+
       recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setInputText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+        const transcript = event?.results?.[0]?.[0]?.transcript ?? '';
+        if (transcript) {
+          setInputText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+        }
         setIsListening(false);
       };
-      recognition.onerror = () => setIsListening(false);
-      recognition.onend = () => setIsListening(false);
+
+      recognition.onerror = (event: any) => {
+        const message = describeVoiceError(event?.error ?? 'unknown');
+        setIsListening(false);
+        recognitionRef.current = null;
+        if (message) setVoiceError(message);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        recognitionRef.current = null;
+      };
+
+      recognitionRef.current = recognition;
       recognition.start();
-    } catch {
+    } catch (err: any) {
+      recognitionRef.current = null;
       setIsListening(false);
+      setVoiceError(
+        describeVoiceError(err?.name === 'InvalidStateError' ? 'aborted' : 'unknown') ??
+          'Input suara tidak bisa dimulai. Coba lagi.'
+      );
     }
   };
 
@@ -157,6 +238,27 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
             <span className="material-symbols-outlined text-[18px] sm:text-[20px]">send</span>
           </button>
         </form>
+
+        {/* Pesan kegagalan input suara. Dulu error SpeechRecognition ditelan
+            tanpa jejak, jadi pengguna hanya melihat tombol mic "tidak bereaksi".
+            Sekarang penyebabnya dijelaskan, dan pesan bisa ditutup. */}
+        {voiceError && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] sm:text-xs leading-relaxed"
+          >
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span className="flex-1">{voiceError}</span>
+            <button
+              type="button"
+              onClick={() => setVoiceError(null)}
+              className="flex-shrink-0 font-bold text-rose-500 hover:text-rose-700 cursor-pointer px-0.5"
+              aria-label="Tutup pesan kesalahan input suara"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Disclaimer Text */}
         <div className="text-center pt-0.5">
