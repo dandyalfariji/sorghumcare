@@ -367,6 +367,15 @@ export const ID_TO_EN: Dict = {
   'Simpan Perubahan': 'Save Changes',
   'Profil berhasil diperbarui!': 'Profile updated successfully!',
   'Masuk dengan Google': 'Sign in with Google',
+  // --- Auth email + kata sandi (fitur baru) ---
+  // Catatan: teks di dalam EmailAuthModal/PasswordRecoveryModal TIDAK memakai
+  // kamus ini (mengandung nilai dinamis seperti email pengguna), jadi hanya
+  // label yang tampil di halaman Profil yang perlu dipetakan di sini.
+  'Masuk / Daftar dengan Email': 'Sign in / Sign up with Email',
+  'Belum punya akun? Daftar gratis': "Don't have an account? Sign up free",
+  'Email Terhubung': 'Email Connected',
+  'Email belum diverifikasi': 'Email not verified',
+  'Email Akun': 'Account Email',
   'Log Out': 'Log Out',
   'Keluar dari Google': 'Sign out of Google',
   'Keluar Akun?': 'Sign Out?',

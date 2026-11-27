@@ -86,11 +86,75 @@ tidak akan pernah tersimpan (di console muncul `Anonymous sign-in failed`).
 ### 2c. Google OAuth (OPSIONAL)
 
 Tanpa ini, tombol login Google (`AuthProvider.signInWithGoogle`) tidak berfungsi,
-tapi seluruh fitur lain tetap jalan karena identitas anonim sudah cukup.
+tapi seluruh fitur lain tetap jalan karena pengguna bisa memakai email + kata sandi
+(bagian 2d) atau identitas anonim.
 
 Kalau ingin menyalakan: **Authentication -> Sign In / Providers -> Google**,
 lalu isi Client ID/Secret dari Google Cloud Console dan daftarkan redirect URI
 yang ditampilkan Supabase.
+
+### 2d. Login email + kata sandi (WAJIB DIPERIKSA)
+
+Aplikasi punya dua jalur masuk: **Google** dan **email + kata sandi**. Yang kedua
+tidak butuh Google Cloud sama sekali — hanya perlu tiga hal di dashboard Supabase:
+
+1. **Authentication -> Sign In / Providers -> Email → aktifkan.**
+   (`signup` harus diizinkan; kalau `disable_signup` dinyalakan, tombol "Daftar"
+   akan menolak dengan pesan "Pendaftaran akun baru sedang dinonaktifkan".)
+   Aplikasi juga sudah menerjemahkan pesan server ini, jadi gejalanya jelas.
+
+2. **Authentication -> URL Configuration -> Redirect URLs.**
+   Tambahkan **setiap** origin tempat aplikasi dibuka, karena tautan verifikasi
+   email dan tautan "lupa kata sandi" harus kembali ke halaman yang benar:
+
+   ```
+   http://localhost:3000/          <- dev lokal
+   https://sorghumcare-ai.kii.lat/ <- produksi (sesuaikan dengan domain Anda)
+   ```
+
+   Selain itu isi **Site URL** dengan domain produksi. Kalau sebuah origin tidak
+   ada di daftar ini, GoTrue **mengabaikan** `emailRedirectTo` yang dikirim
+   aplikasi dan memakai Site URL — akibatnya tautan verifikasi dari email
+   membuka domain produksi, bukan localhost. Ini penyebab paling sering dari
+   keluhan "email verifikasinya tidak berfungsi di lokal".
+
+3. **Email pengiriman (SMTP).**
+   Secara default `mailer_autoconfirm=false`, artinya **akun baru harus
+   mengonfirmasi email sebelum bisa masuk**. Supabase menyediakan pengirim
+   bawaan, tetapi kuotanya sangat kecil (beberapa email per jam) dan sering
+   masuk folder Spam — cukup untuk uji coba, **tidak** cukup untuk pengguna
+   nyata. Untuk pemakaian sebenarnya, isi
+   **Project Settings -> Auth -> SMTP Settings** dengan penyedia email
+   (Resend/Brevo/SendGrid, dsb).
+
+   Kalau hanya ingin menguji cepat tanpa repot konfirmasi, nyalakan
+   **Authentication -> Sign In / Providers -> Email -> "Confirm email" = OFF**
+   (`mailer_autoconfirm=true`). Dengan begitu pendaftaran langsung menghasilkan
+   sesi aktif. **Jangan dipakai di produksi**: alamat email tidak akan terbukti
+   milik pendaftar.
+
+Yang sudah disiapkan aplikasi (tidak perlu konfigurasi tambahan):
+- Form daftar, form masuk, dan form "lupa kata sandi" di dalam aplikasi
+  (`src/components/Auth/EmailAuthModal.tsx`) — pengguna tidak dilempar keluar
+  ke situs lain.
+- Layar "cek kotak masuk" + tombol **kirim ulang email verifikasi** setelah
+  mendaftar, karena pada titik itu pengguna belum punya sesi.
+- Modal **buat kata sandi baru** yang muncul otomatis saat pengguna membuka
+  tautan reset dari email (memanfaatkan event `PASSWORD_RECOVERY` Supabase).
+- Penerjemah pesan error Supabase -> Bahasa Indonesia
+  (`src/lib/authErrors.ts`), mis. "Invalid login credentials" menjadi
+  "Email atau kata sandi salah...".
+- Nama yang diisi saat mendaftar ikut tersimpan ke `profiles.full_name` lewat
+  trigger `handle_new_user` (migrasi 001) — tidak perlu mengisi ulang di
+  halaman Profil.
+
+**Catatan penting soal penyimpanan resep.** Tombol "Simpan" hanya terbuka untuk
+akun asli (`hasAccount`), bukan untuk sesi tamu anonim — sesi tamu hidup di
+`localStorage` dan hilang saat browser dibersihkan. Resep/chat yang dibuat
+**sebelum** mendaftar tercatat atas nama sesi tamu, jadi tidak otomatis pindah
+ke akun baru setelah mendaftar. Sampai ada fitur migrasi data, anggap keduanya
+terpisah.
+
 
 ---
 

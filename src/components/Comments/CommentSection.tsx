@@ -15,6 +15,8 @@ interface CommentSectionProps {
   recipeId: string;
   recipeSlug?: string;
   isGoogleUser?: boolean;
+  /** Punya akun asli (Google atau email+sandi). */
+  hasAccount?: boolean;
   displayName?: string;
   avatarUrl?: string | null;
   /** Dipanggil setiap jumlah komentar berubah (load/tambah/hapus). */
@@ -186,6 +188,7 @@ export const CommentSection: React.FC<CommentSectionProps> = ({
   recipeId,
   recipeSlug,
   isGoogleUser = false,
+  hasAccount = false,
   displayName = 'Guest',
   avatarUrl,
   onCountChange,
@@ -306,8 +309,8 @@ export const CommentSection: React.FC<CommentSectionProps> = ({
     const result = await postComment(
       resolvedId,
       text,
-      isGoogleUser ? displayName : 'Guest',
-      isGoogleUser ? avatarUrl : null,
+      hasAccount ? displayName : 'Guest',
+      hasAccount ? avatarUrl : null,
       replyTo,
     );
     if (result) {
@@ -408,7 +411,7 @@ export const CommentSection: React.FC<CommentSectionProps> = ({
           {/* Input bar */}
           <div className="flex gap-2 items-end pt-2 border-t border-[#e2e3e1]">
             <img
-              src={isGoogleUser && avatarUrl ? avatarUrl : `https://api.dicebear.com/7.x/initials/svg?seed=Guest&backgroundColor=e2e3e1&textColor=424843`}
+              src={hasAccount && avatarUrl ? avatarUrl : `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(hasAccount ? displayName : 'Guest')}&backgroundColor=e2e3e1&textColor=424843`}
               alt="You"
               className="w-8 h-8 rounded-full flex-shrink-0 bg-[#e8eae6] border border-[#c2c8c0]/40"
               referrerPolicy="no-referrer"

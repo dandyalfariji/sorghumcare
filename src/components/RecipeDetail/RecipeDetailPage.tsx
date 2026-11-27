@@ -38,8 +38,12 @@ interface RecipeDetailPageProps {
   onOpenProfile?: () => void;
   onOpenSearch?: () => void;
   onNavigateTab?: (tab: 'home' | 'explore' | 'profile' | 'generate') => void;
-  // Google Auth
+  // Akun (Google / email+sandi) vs sesi tamu
   isGoogleUser?: boolean;
+  /** Punya akun asli — Google ATAU email+sandi. Yang membuka fitur terkunci. */
+  hasAccount?: boolean;
+  /** Dipanggil saat tamu menekan fitur yang butuh akun. */
+  onRequireLogin?: () => void;
   googleDisplayName?: string;
   googleAvatarUrl?: string | null;
 }
@@ -54,6 +58,8 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   onOpenSearch,
   onNavigateTab,
   isGoogleUser = false,
+  hasAccount = false,
+  onRequireLogin,
   googleDisplayName,
   googleAvatarUrl,
 }) => {
@@ -164,11 +170,12 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
   };
 
   const handleFavoriteClick = () => {
-    // Guest tidak boleh menyimpan ke koleksi pribadi — `saved_recipes` terikat
+    // Tamu tidak boleh menyimpan ke koleksi pribadi — `saved_recipes` terikat
     // pada sesi anonim di localStorage, jadi simpanan itu hilang saat browser
-    // dibersihkan / ganti perangkat. Arahkan ke halaman Profil untuk login.
-    if (!isGoogleUser) {
-      onOpenProfile();
+    // dibersihkan / ganti perangkat. Buka form masuk (email/Google) langsung.
+    if (!hasAccount) {
+      if (onRequireLogin) onRequireLogin();
+      else onOpenProfile?.();
       return;
     }
     // Save = koleksi pribadi. Optimistis, selaraskan via prop isSaved dari DB.
@@ -372,20 +379,20 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
                     : 'bg-[#f4f4f2] text-[#424843] border-[#e2e3e1] hover:border-[#163422]/40'
                 }`}
                 title={
-                  !isGoogleUser
-                    ? 'Masuk dengan Google untuk menyimpan resep'
+                  !hasAccount
+                    ? 'Masuk untuk menyimpan resep'
                     : favoriteState
                     ? 'Hapus dari koleksi'
                     : 'Simpan ke koleksi'
                 }
-                aria-label={isGoogleUser ? 'Simpan ke koleksi' : 'Masuk untuk menyimpan resep'}
+                aria-label={hasAccount ? 'Simpan ke koleksi' : 'Masuk untuk menyimpan resep'}
               >
                 <Bookmark
                   className="w-4 h-4"
                   fill={favoriteState ? '#fdc65c' : 'none'}
                 />
                 <span>
-                  {!isGoogleUser ? 'Masuk untuk simpan' : favoriteState ? 'Tersimpan' : 'Simpan'}
+                  {!hasAccount ? 'Masuk untuk simpan' : favoriteState ? 'Tersimpan' : 'Simpan'}
                 </span>
               </button>
 
@@ -795,6 +802,7 @@ export const RecipeDetailPage: React.FC<RecipeDetailPageProps> = ({
           recipeId={recipe.id}
           recipeSlug={recipe.slug}
           isGoogleUser={isGoogleUser}
+          hasAccount={hasAccount}
           displayName={googleDisplayName || 'Guest'}
           avatarUrl={googleAvatarUrl || null}
           onCountChange={setCommentCount}

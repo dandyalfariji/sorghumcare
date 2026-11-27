@@ -72,6 +72,8 @@ import type { DbChatMessageRow } from './lib/supabase';
 import { bimaChat, isAiUnavailableError, configureAiRuntime, type BimaChatMessage } from './services/bimaClient';
 import { preflightPrompt, type PreflightResult } from './services/preflight';
 import { PreflightWarningModal } from './components/Modals/PreflightWarningModal';
+import { EmailAuthModal } from './components/Auth/EmailAuthModal';
+import { PasswordRecoveryModal } from './components/Auth/PasswordRecoveryModal';
 
 import { Menu, Sparkles, Plus, ArrowLeft } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -98,6 +100,10 @@ export default function App() {
   // Google Auth state
   const {
     isGoogleUser,
+    isEmailUser,
+    hasAccount,
+    emailVerified,
+    user,
     displayName,
     profileBio,
     avatarUrl: googleAvatarUrl,
@@ -105,6 +111,9 @@ export default function App() {
     signOut: googleSignOut,
     refreshProfile,
   } = useAuth();
+
+  // Modal masuk/daftar dengan email + kata sandi.
+  const [emailAuthMode, setEmailAuthMode] = useState<'signin' | 'signup' | null>(null);
   // Nama tampilan yang dipakai seluruh halaman (Home, Profile, Sidebar, Detail
   // Resep). Berasal dari profiles.full_name (hasil "Edit Profil"), fallback ke
   // nama Google, lalu 'Guest' — bukan lagi selalu 'Guest'.
@@ -1021,11 +1030,14 @@ export default function App() {
 
   const handleToggleSaveRecipe = (recipe: Recipe) => {
     // Pertahanan berlapis: meskipun tombol sudah di-gate di RecipeCardView,
-    // handler ini juga menolak guest. Sesi anonim hidup di localStorage, jadi
+    // handler ini juga menolak tamu. Sesi anonim hidup di localStorage, jadi
     // resep yang tersimpan lewat sesi itu akan hilang tanpa peringatan saat
     // browser dibersihkan atau pengguna berganti perangkat.
-    if (!isGoogleUser) {
-      handleSelectTab('profile');
+    // Catatan: yang diperiksa `hasAccount` (bukan hanya akun Google), supaya
+    // pengguna yang mendaftar dengan email + kata sandi juga bisa menyimpan.
+    if (!hasAccount) {
+      // Arahkan langsung ke form masuk, bukan sekadar membuka tab Profil.
+      setEmailAuthMode('signin');
       return;
     }
     // Persist toggle to Supabase (insert/delete saved_recipes), then refetch
@@ -1283,6 +1295,8 @@ export default function App() {
           onOpenSearch={handleOpenSearch}
           onNavigateTab={handleSelectTab}
           isGoogleUser={isGoogleUser}
+          hasAccount={hasAccount}
+          onRequireLogin={() => setEmailAuthMode('signin')}
           googleDisplayName={googleDisplayName}
           googleAvatarUrl={googleAvatarUrl}
         />
@@ -1373,10 +1387,15 @@ export default function App() {
                 });
               }}
               isGoogleUser={isGoogleUser}
+              isEmailUser={isEmailUser}
+              hasAccount={hasAccount}
+              emailVerified={emailVerified}
+              userEmail={user?.email ?? null}
               googleDisplayName={googleDisplayName}
               googleAvatarUrl={googleAvatarUrl}
               onSignInWithGoogle={signInWithGoogle}
               onGoogleSignOut={googleSignOut}
+              onOpenEmailAuth={(mode) => setEmailAuthMode(mode ?? 'signin')}
               dayStreak={userStats.dayStreak}
             />
           )}
@@ -1662,10 +1681,10 @@ export default function App() {
                                       onPublish={handlePublishRecipe}
                                       isPublishing={publishingIds.has(msg.recipe.id) || publishingIds.has(msg.recipe.slug || '')}
                                       inputIngredientNames={[...wizardData.selectedIngredientIds, ...wizardData.customIngredients]}
-                                      canSave={isGoogleUser}
+                                      canSave={hasAccount}
                                       onRequireLogin={() => {
                                         setSelectedRecipeDetail(null);
-                                        handleSelectTab('profile');
+                                        setEmailAuthMode('signin');
                                       }}
                                     />
                                     <span className="text-[10px] text-[#727972] mt-2 px-1">
@@ -1813,6 +1832,20 @@ export default function App() {
             onProceed={handlePreflightProceed}
           />
         )}
+
+        {/* Masuk / daftar dengan email + kata sandi.
+            Modal ini menjaga pengguna tetap di aplikasi — berbeda dengan
+            tombol Google yang melempar ke accounts.google.com. */}
+        <EmailAuthModal
+          open={emailAuthMode !== null}
+          initialMode={emailAuthMode ?? 'signin'}
+          onClose={() => setEmailAuthMode(null)}
+          onSuccess={() => setEmailAuthMode(null)}
+        />
+
+        {/* Muncul sendiri saat Supabase mengirim event PASSWORD_RECOVERY,
+            yaitu ketika pengguna membuka tautan reset dari email. */}
+        <PasswordRecoveryModal />
       </>
     </div>
   );

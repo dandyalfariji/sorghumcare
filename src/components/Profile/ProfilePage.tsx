@@ -11,7 +11,8 @@ import {
   Edit3,
   User,
   ChefHat,
-  Search
+  Search,
+  Mail
 } from 'lucide-react';
 import { Recipe, SavedRecipe } from '../../types';
 import { RecipeInfoCard } from './RecipeInfoCard';
@@ -32,13 +33,19 @@ interface ProfilePageProps {
   onSaveProfile?: (name: string, bio: string) => void;
   onLogout?: () => void;
   onRemoveSaved?: (recipe: Recipe) => void;
-  // Google Auth
+  // Akun (Google / email+sandi) vs sesi tamu
   isGoogleUser?: boolean;
+  isEmailUser?: boolean;
+  hasAccount?: boolean;
+  emailVerified?: boolean;
+  userEmail?: string | null;
   googleDisplayName?: string;
   googleAvatarUrl?: string | null;
   onSignInWithGoogle?: () => Promise<void>;
   onGoogleSignOut?: () => Promise<void>;
-  // Dynamic stats
+  /** Buka modal email + kata sandi (masuk / daftar). */
+  onOpenEmailAuth?: (mode?: 'signin' | 'signup') => void;
+  /** Dynamic stats */
   dayStreak?: number;
 }
 
@@ -56,10 +63,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   onLogout,
   onRemoveSaved,
   isGoogleUser = false,
+  isEmailUser = false,
+  hasAccount = false,
+  emailVerified = false,
+  userEmail = null,
   googleDisplayName,
   googleAvatarUrl,
   onSignInWithGoogle,
   onGoogleSignOut,
+  onOpenEmailAuth,
   dayStreak = 0,
 }) => {
   const [googleSigningIn, setGoogleSigningIn] = useState(false);
@@ -357,15 +369,27 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             {userName || googleDisplayName || 'Guest'}
           </h1>
           <p className="text-sm text-[#424843] mt-1 max-w-xs mx-auto">
-            {userBio || (isGoogleUser ? 'Google Account' : 'Guest Mode')}
+            {userBio || (isGoogleUser ? 'Google Account' : isEmailUser ? 'Email Account' : 'Guest Mode')}
           </p>
-          
+
+          {/* Email akun ditampilkan agar pengguna tahu akun mana yang aktif,
+              dan alamat mana yang harus dicek saat verifikasi. */}
+          {hasAccount && userEmail && (
+            <p className="text-xs text-[#727972] mt-1 break-all">{userEmail}</p>
+          )}
+
           <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
-            {isGoogleUser ? (
+            {hasAccount ? (
               <>
+                {/* Sudah punya akun: tampilkan hanya asal akunnya. */}
                 <span className="bg-[#cbebc3] text-[#324d30] px-3 py-1 rounded-full text-xs font-semibold tracking-wide">
-                  Google Connected
+                  {isGoogleUser ? 'Google Connected' : 'Email Terhubung'}
                 </span>
+                {!emailVerified && (
+                  <span className="bg-[#fdc65c] text-[#745200] px-3 py-1 rounded-full text-xs font-semibold tracking-wide">
+                    Email belum diverifikasi
+                  </span>
+                )}
                 <button
                   onClick={() => {
                     setEditNameInput(userName);
@@ -381,7 +405,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             ) : (
               <>
                 {/* Edit profil juga tersedia untuk pengguna tamu (anonim),
-                    supaya nama/bio bisa diisi tanpa login Google. */}
+                    supaya nama/bio bisa diisi tanpa login. */}
                 <button
                   onClick={() => {
                     setEditNameInput(userName);
@@ -393,28 +417,53 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <Edit3 className="w-3 h-3" />
                   <span>Edit Profil</span>
                 </button>
-                {/* Sign in with Google button */}
+
+                {/* ---- Dua jalur masuk ---- */}
+                <div className="w-full flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2 mt-1">
+                  {/* Email + kata sandi (form di dalam aplikasi). */}
+                  <button
+                    onClick={() => onOpenEmailAuth?.('signin')}
+                    className="flex items-center justify-center gap-2 bg-[#163422] text-white hover:bg-[#2d4b37] px-4 py-2 rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer"
+                  >
+                    <Mail className="w-4 h-4" />
+                    <span>Masuk / Daftar dengan Email</span>
+                  </button>
+
+                  {/* Google OAuth (redirect keluar aplikasi). */}
+                  <button
+                    onClick={async () => {
+                      if (!onSignInWithGoogle) return;
+                      setGoogleSigningIn(true);
+                      try {
+                        await onSignInWithGoogle();
+                        // Redirect keluar aplikasi; kalau pengguna membatalkan di
+                        // halaman Google dan kembali (bfcache), state ini harus
+                        // dilepas — dulu tidak, sehingga tombolnya tersangkut di
+                        // "Menghubungkan..." selamanya.
+                      } finally {
+                        setGoogleSigningIn(false);
+                      }
+                    }}
+                    disabled={googleSigningIn}
+                    className="flex items-center justify-center gap-2 bg-white border border-[#c2c8c0] hover:border-[#163422]/30 hover:shadow-md px-4 py-2 rounded-full text-xs font-bold text-[#1a1c1b] transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24">
+                      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                    </svg>
+                    <span>{googleSigningIn ? 'Menghubungkan...' : 'Masuk dengan Google'}</span>
+                  </button>
+                </div>
+
                 <button
-                  onClick={async () => {
-                    if (!onSignInWithGoogle) return;
-                    setGoogleSigningIn(true);
-                    try {
-                      await onSignInWithGoogle();
-                    } catch {
-                      setGoogleSigningIn(false);
-                    }
-                  }}
-                  disabled={googleSigningIn}
-                  className="flex items-center gap-2 bg-white border border-[#c2c8c0] hover:border-[#163422]/30 hover:shadow-md px-4 py-2 rounded-full text-xs font-bold text-[#1a1c1b] transition-all cursor-pointer disabled:opacity-60"
+                  onClick={() => onOpenEmailAuth?.('signup')}
+                  className="text-xs font-semibold text-[#163422] hover:underline cursor-pointer"
                 >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24">
-                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
-                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                  </svg>
-                  <span>{googleSigningIn ? 'Menghubungkan...' : 'Masuk dengan Google'}</span>
+                  Belum punya akun? Daftar gratis
                 </button>
+
                 <span className="bg-[#fdc65c] text-[#745200] px-3 py-1 rounded-full text-xs font-semibold tracking-wide">
                   Guest Mode
                 </span>
@@ -516,19 +565,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
             {/* Log Out */}
             <button
-              onClick={() => {
-                if (isGoogleUser && onGoogleSignOut) {
-                  setShowLogoutConfirm(true);
-                } else {
-                  setShowLogoutConfirm(true);
-                }
-              }}
+              onClick={() => setShowLogoutConfirm(true)}
               className="w-full flex items-center justify-between p-4 hover:bg-[#ffdad6]/20 transition-colors text-left group"
             >
               <div className="flex items-center gap-3 text-[#ba1a1a]">
                 <span className="material-symbols-outlined">logout</span>
                 <span className="text-sm font-semibold">
-                  {isGoogleUser ? 'Keluar dari Google' : 'Log Out'}
+                  {isGoogleUser ? 'Keluar dari Google' : hasAccount ? 'Log Out' : 'Keluar Mode Tamu'}
                 </span>
               </div>
             </button>
@@ -651,7 +694,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <button
                 onClick={async () => {
                   setShowLogoutConfirm(false);
-                  if (isGoogleUser && onGoogleSignOut) {
+                  // Akun Google DAN akun email sama-sama keluar lewat jalur ini.
+                  // Sebelumnya hanya akun Google yang punya handler, sehingga
+                  // pengguna email+sandi tidak bisa keluar sama sekali
+                  // (`onLogout` tidak pernah diteruskan dari App).
+                  if (onGoogleSignOut) {
                     await onGoogleSignOut();
                   } else if (onLogout) {
                     onLogout();
