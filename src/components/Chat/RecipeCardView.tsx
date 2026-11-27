@@ -46,7 +46,7 @@ interface RecipeCardViewProps {
    * akun yang benar-benar login (Google), dan tombolnya menjelaskan sebabnya.
    */
   canSave?: boolean;
-  /** Buka halaman Profil (tempat tombol Masuk dengan Google) saat guest menekan Simpan. */
+  /** Dipanggil saat tamu menekan Simpan — membuka form masuk (email/Google). */
   onRequireLogin?: () => void;
 }
 
@@ -384,7 +384,7 @@ export const RecipeCardView: React.FC<RecipeCardViewProps> = ({
         {/* Save button — guest diarahkan login, bukan diberi tombol yang gagal diam-diam */}
         <button
           onClick={handleSaveClick}
-          title={canSave ? undefined : 'Masuk dengan Google untuk menyimpan resep'}
+          title={canSave ? undefined : 'Masuk untuk menyimpan resep (email atau Google)'}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs ${
             !canSave
               ? 'bg-[#f4f4f2] border border-dashed border-[#c2c8c0] text-[#727972] hover:border-[#163422] hover:text-[#163422] cursor-pointer'
